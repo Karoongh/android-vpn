@@ -117,8 +117,8 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { setBackgroundColor(BG) }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(28), dp(20), dp(24)); gravity = Gravity.CENTER_HORIZONTAL }
         col.addView(TextView(this).apply { text = "Karoon Tunnel"; textSize = 24f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER })
-        col.addView(TextView(this).apply { text = "SSH · VLESS · VMess · Trojan · Shadowsocks"; textSize = 12f; setTextColor(MUTED); gravity = Gravity.CENTER; setPadding(0, dp(4), 0, dp(20) })
-        tvActiveProfile = TextView(this).apply { textSize = 13f; setTextColor(MUTED); gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(12) }
+        col.addView(TextView(this).apply { text = "SSH · VLESS · VMess · Trojan · Shadowsocks"; textSize = 12f; setTextColor(MUTED); gravity = Gravity.CENTER; setPadding(0, dp(4), 0, dp(20)) })
+        tvActiveProfile = TextView(this).apply { textSize = 13f; setTextColor(MUTED); gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(12)) }
         col.addView(tvActiveProfile)
         val statusCard = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = rounded(CARD, 16); setPadding(dp(16), dp(16), dp(16), dp(16)) }
         tvHomeStatus = TextView(this).apply { textSize = 15f; setTextColor(TEXT); gravity = Gravity.CENTER }
