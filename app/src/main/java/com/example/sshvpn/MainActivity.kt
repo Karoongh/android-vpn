@@ -321,13 +321,13 @@ class MainActivity : Activity() {
 
     private fun startSpeedMonitor() {
         if (speedRunning) return
-        speedRunning = true; lastUpBytes = TunnelStats.upBytes; lastDownBytes = TunnelStats.downBytes
+        speedRunning = true; lastUpBytes = TunnelStats.uplink.get(); lastDownBytes = TunnelStats.downlink.get()
         upSamples.clear(); downSamples.clear(); mainHandler.post(speedRunnable)
     }
     private fun stopSpeedMonitor() { speedRunning = false; mainHandler.removeCallbacks(speedRunnable) }
     private fun tickStats() {
         if (!speedRunning || currentTab != 2) return
-        val up = TunnelStats.upBytes; val down = TunnelStats.downBytes
+        val up = TunnelStats.uplink.get(); val down = TunnelStats.downlink.get()
         val upRate = max(0f, (up - lastUpBytes).toFloat()); val downRate = max(0f, (down - lastDownBytes).toFloat())
         lastUpBytes = up; lastDownBytes = down
         if (upSamples.size >= 60) upSamples.removeFirst(); upSamples.addLast(upRate)
@@ -356,9 +356,9 @@ class MainActivity : Activity() {
         outer.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         return outer
     }
-    private fun refreshLogs() { tvLogs.text = LogStore.snapshot().ifBlank { "(empty)" } }
+    private fun refreshLogs() { tvLogs.text = LogStore.text().ifBlank { "(empty)" } }
     private fun copyLogs() {
-        (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("logs", LogStore.snapshot()))
+        (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("logs", LogStore.text()))
         toast("Logs copied")
     }
 
@@ -368,14 +368,10 @@ class MainActivity : Activity() {
         col.addView(TextView(this).apply { text = "More"; textSize = 20f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, dp(12)) })
         col.addView(TextView(this).apply { text = "Max SOCKS channels (SSH)"; textSize = 13f; setTextColor(MUTED) })
         etMaxChannels = EditText(this).apply {
-            setText(prefs().getInt("max_channels", 48).toString()); inputType = InputType.TYPE_CLASS_NUMBER
+            setText("48"); inputType = InputType.TYPE_CLASS_NUMBER
             setTextColor(TEXT); setHintTextColor(MUTED); setBackgroundColor(INPUT_BG); setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        col.addView(etMaxChannels, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6); bottomMargin = dp(8) })
-        col.addView(smallBtn("Save channel limit") {
-            val v = etMaxChannels.text.toString().toIntOrNull()?.coerceIn(8, 128) ?: 48
-            prefs().edit().putInt("max_channels", v).apply(); toast("Saved $v")
-        })
+        col.addView(etMaxChannels, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         col.addView(TextView(this).apply {
             text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 1.9\nSigning: keystore/SIGNING.md"
             textSize = 12f; setTextColor(MUTED); setPadding(0, dp(16), 0, 0)
@@ -384,57 +380,69 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)) }
     }
 
-    private fun etMaxChannelsSafe(): Int = try { etMaxChannels.text.toString().toIntOrNull()?.coerceIn(8, 128) ?: prefs().getInt("max_channels", 48) } catch (_: Exception) { prefs().getInt("max_channels", 48) }
-    private fun prefs() = getSharedPreferences("karoon_settings", Context.MODE_PRIVATE)
+    private fun etMaxChannelsSafe(): Int = etMaxChannels.text.toString().toIntOrNull()?.coerceIn(8, 128) ?: 48
 
     private fun onConnect() {
-        val profile = profiles.getActive()
-        if (profile == null) { toast("Select or import a config first"); showTab(1); return }
-        val intent = VpnService.prepare(this)
-        if (intent != null) startActivityForResult(intent, REQ_VPN) else startVpn(profile.config)
+        val p = profiles.getActive() ?: run { toast("Select a config first"); showTab(1); return }
+        editingId = p.id
+        val prep = VpnService.prepare(this)
+        if (prep != null) { startActivityForResult(prep, REQ_VPN); return }
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF); return
+            }
+        }
+        startVpn()
     }
-    private fun startVpn(cfg: SshConfig) {
-        if (Build.VERSION.SDK_INT >= 33) { try { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF) } catch (_: Exception) {} }
-        val i = Intent(this, SshVpnService::class.java).setAction(SshVpnService.ACTION_START).putExtra(SshVpnService.EXTRA_CONFIG, cfg.toJson())
+    private fun startVpn() {
+        val id = editingId ?: profiles.getActiveId() ?: return
+        val i = Intent(this, SshVpnService::class.java).apply { action = SshVpnService.ACTION_CONNECT; putExtra(SshVpnService.EXTRA_PROFILE_ID, id) }
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
     }
-    private fun onDisconnect() { startService(Intent(this, SshVpnService::class.java).setAction(SshVpnService.ACTION_STOP)) }
-
+    private fun onDisconnect() {
+        startService(Intent(this, SshVpnService::class.java).apply { action = SshVpnService.ACTION_DISCONNECT })
+    }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_VPN && resultCode == Activity.RESULT_OK) profiles.getActive()?.let { startVpn(it.config) } ?: toast("No profile")
-        else if (requestCode == REQ_VPN) toast("VPN permission denied")
+        if (requestCode == REQ_VPN && resultCode == RESULT_OK) onConnect()
+    }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_NOTIF) onConnect()
     }
 
     private fun row(vararg views: View): LinearLayout {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        views.forEach { v -> row.addView(v, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }) }
-        return row
+        val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        views.forEach { r.addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }) }
+        return r
     }
     private fun smallBtn(label: String, onClick: () -> Unit) = Button(this).apply {
         text = label; textSize = 12f; setTextColor(Color.WHITE); background = rounded(ACCENT, 10)
         setPadding(dp(8), dp(8), dp(8), dp(8)); setOnClickListener { onClick() }
     }
-    private fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply { setColor(color); cornerRadius = radiusDp * resources.displayMetrics.density }
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(radiusDp).toFloat() }
+    private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_SHORT).show()
 }
 
-class TrafficChartView(context: Context, private val lineColor: Int) : View(context) {
+/** Simple sparkline chart for uplink/downlink rates. */
+class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
     private val samples = ArrayList<Float>()
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = lineColor; strokeWidth = 3f; style = Paint.Style.STROKE }
-    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#334155"); strokeWidth = 1f }
-    fun setSamples(data: List<Float>) { samples.clear(); samples.addAll(data); invalidate() }
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = lineColor; alpha = 40; style = Paint.Style.FILL }
+    private val gridPaint = Paint().apply { color = Color.parseColor("#334155"); strokeWidth = 1f }
+    fun setSamples(s: List<Float>) { samples.clear(); samples.addAll(s); invalidate() }
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val w = width.toFloat(); val h = height.toFloat()
-        canvas.drawColor(Color.parseColor("#1A2332"))
+        if (w <= 0 || h <= 0) return
+        canvas.drawColor(Color.parseColor("#0F172A"))
         for (i in 1..3) canvas.drawLine(0f, h * i / 4f, w, h * i / 4f, gridPaint)
         if (samples.size < 2) return
         val maxV = samples.maxOrNull()?.coerceAtLeast(1f) ?: 1f
         val path = android.graphics.Path()
         samples.forEachIndexed { i, v ->
-            val x = i * (w / (samples.size - 1).coerceAtLeast(1))
-            val y = h - (v / maxV) * (h * 0.9f) - h * 0.05f
+            val x = i * w / (samples.size - 1).coerceAtLeast(1)
+            val y = h - (v / maxV) * (h * 0.9f)
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         canvas.drawPath(path, linePaint)
