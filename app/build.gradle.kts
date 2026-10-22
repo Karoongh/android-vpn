@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.sshvpn"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.3"
+        versionCode = 3
+        versionName = "1.8"
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")

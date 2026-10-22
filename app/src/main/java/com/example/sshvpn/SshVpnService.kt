@@ -39,6 +39,7 @@ class SshVpnService : VpnService() {
     private var worker: Thread? = null
     private var session: Session? = null
     private var socks: Socks5Server? = null
+    private var xray: XrayEngine? = null
     private var tun: ParcelFileDescriptor? = null
     private var activeConfig: SshConfig? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -131,27 +132,45 @@ class SshVpnService : VpnService() {
     }
 
     private fun establishAndMonitor(cfg: SshConfig, isReconnect: Boolean): Boolean {
-        var stage = "SSH connection"
+        var stage = "connection"
         try {
             val statusLabel = if (isReconnect) Status.RECONNECTING else Status.CONNECTING
-            VpnState.update(statusLabel, "SSH ${cfg.host}:${cfg.port} ...")
-            LogStore.append("Connecting SSH (before VPN) to ${cfg.host}:${cfg.port}")
-            val s = connectSshWithRetry(cfg)
-            if (stopping || userStop.get()) return true
-            session = s
-            LogStore.append("SSH session established")
-            protectSession(s)
+            val socksPort: Int
 
-            val channels = cfg.maxChannels.coerceIn(8, 48)
+            if (cfg.isXrayFamily) {
+                stage = "Starting ${cfg.displayProtocol()} core"
+                VpnState.update(statusLabel, "${cfg.displayProtocol()} ${cfg.host}:${cfg.port} ...")
+                LogStore.append("Starting Xray for ${cfg.displayProtocol()} ${cfg.host}:${cfg.port}")
+                val port = pickFreePort()
+                val engine = XrayEngine(this)
+                engine.start(cfg, port)
+                xray = engine
+                socksPort = port
+                TunnelStats.reset()
+                VpnState.socksPort = port
+                LogStore.append("Xray local SOCKS on port $port")
+            } else {
+                stage = "SSH connection"
+                VpnState.update(statusLabel, "SSH ${cfg.host}:${cfg.port} ...")
+                LogStore.append("Connecting SSH (before VPN) to ${cfg.host}:${cfg.port}")
+                val s = connectSshWithRetry(cfg)
+                if (stopping || userStop.get()) return true
+                session = s
+                LogStore.append("SSH session established")
+                protectSession(s)
 
-            stage = "Starting local SOCKS5 proxy"
-            VpnState.update(statusLabel, "Starting local proxy ...")
-            val server = Socks5Server({ session }, channels, udpgw = null)
-            server.start()
-            socks = server
-            TunnelStats.reset()
-            VpnState.socksPort = server.port
-            LogStore.append("Local SOCKS5 on port ${server.port} (tcp relay, maxChannels=$channels)")
+                val channels = cfg.maxChannels.coerceIn(8, 48)
+
+                stage = "Starting local SOCKS5 proxy"
+                VpnState.update(statusLabel, "Starting local proxy ...")
+                val server = Socks5Server({ session }, channels, udpgw = null)
+                server.start()
+                socks = server
+                TunnelStats.reset()
+                VpnState.socksPort = server.port
+                socksPort = server.port
+                LogStore.append("Local SOCKS5 on port ${server.port} (tcp relay, maxChannels=$channels)")
+            }
 
             stage = "Creating Android VPN interface"
             VpnState.update(statusLabel, "Starting Android VPN ...")
@@ -160,7 +179,6 @@ class SshVpnService : VpnService() {
                 .setMtu(MTU)
                 .addAddress("198.18.0.1", 30)
                 .addRoute("0.0.0.0", 0)
-                // Use hev mapdns so synthetic DNS addresses are mapped back to hostnames.
                 .addDnsServer("198.18.0.2")
 
             try { builder.allowFamily(OsConstants.AF_INET) } catch (_: Exception) {}
@@ -173,7 +191,7 @@ class SshVpnService : VpnService() {
                 ?: throw IllegalStateException("VPN permission denied or another VPN is active")
             tun = pfd
             LogStore.append("VPN interface established (MTU=$MTU)")
-            protectSession(s)
+            session?.let { protectSession(it) }
 
             stage = "Starting traffic tunnel (hev-socks5-tunnel)"
             VpnState.update(statusLabel, "Starting traffic tunnel ...")
@@ -194,7 +212,7 @@ class SshVpnService : VpnService() {
                   netmask: 255.254.0.0
                   cache-size: 10000
                 socks5:
-                  port: ${server.port}
+                  port: $socksPort
                   address: 127.0.0.1
                   udp: 'tcp'
                 misc:
@@ -209,7 +227,7 @@ class SshVpnService : VpnService() {
                 throw IllegalStateException("Failed to start hev-socks5-tunnel")
             }
             LogStore.append("Tunnel started successfully")
-            probeThroughSocks(server.port)
+            probeThroughSocks(socksPort)
 
             VpnState.update(Status.CONNECTED, "Connected to ${cfg.host}")
             updateNotification("Connected to ${cfg.host}")
@@ -217,17 +235,24 @@ class SshVpnService : VpnService() {
             while (!stopping && !userStop.get()) {
                 Thread.sleep(1500)
                 if (stopping || userStop.get()) return true
-                val sess = session
-                if (sess == null || !sess.isConnected) {
-                    LogStore.append("SSH session dropped — will reconnect")
-                    return false
-                }
-                try {
-                    sess.sendKeepAliveMsg()
-                } catch (_: Exception) {
-                    if (session?.isConnected != true) {
-                        LogStore.append("SSH keepalive failed — will reconnect")
+                if (cfg.isXrayFamily) {
+                    if (xray?.isRunning() != true) {
+                        LogStore.append("Xray process stopped — will reconnect")
                         return false
+                    }
+                } else {
+                    val sess = session
+                    if (sess == null || !sess.isConnected) {
+                        LogStore.append("SSH session dropped — will reconnect")
+                        return false
+                    }
+                    try {
+                        sess.sendKeepAliveMsg()
+                    } catch (_: Exception) {
+                        if (session?.isConnected != true) {
+                            LogStore.append("SSH keepalive failed — will reconnect")
+                            return false
+                        }
                     }
                 }
             }
@@ -256,6 +281,8 @@ class SshVpnService : VpnService() {
         } catch (_: Throwable) {}
         try { socks?.stop() } catch (_: Exception) {}
         socks = null
+        try { xray?.stop() } catch (_: Exception) {}
+        xray = null
         VpnState.socksPort = -1
         try { session?.disconnect() } catch (_: Exception) {}
         session = null
@@ -307,7 +334,6 @@ class SshVpnService : VpnService() {
         networkCallback = null
     }
 
-    /** Keep the SSH TCP socket off the VPN interface (prevents black-hole / near-zero download). */
     private fun protectSession(session: Session) {
         try {
             for (name in listOf("socket", "sock")) {
@@ -339,7 +365,6 @@ class SshVpnService : VpnService() {
         }
     }
 
-    /** Quick HTTPS fetch via local SOCKS to verify download path. */
     private fun probeThroughSocks(socksPort: Int) {
         Thread {
             try {
@@ -361,6 +386,13 @@ class SshVpnService : VpnService() {
                 LogStore.append("Probe via SOCKS failed: ${e.javaClass.simpleName}: ${e.message}")
             }
         }.also { it.isDaemon = true; it.start() }
+    }
+
+    private fun pickFreePort(): Int {
+        java.net.ServerSocket(0).use { ss ->
+            ss.reuseAddress = true
+            return ss.localPort
+        }
     }
 
     private fun connectSshWithRetry(cfg: SshConfig): Session {
@@ -445,78 +477,47 @@ class SshVpnService : VpnService() {
             .mapNotNull { it.message?.takeIf(String::isNotBlank) }
             .distinct()
             .toList()
-        val m = messages.joinToString(" | ").ifBlank { t.javaClass.simpleName }
-        return when {
-            m.contains("Auth fail", true) || m.contains("authentication failed", true) ->
-                "SSH authentication failed; check username, password, or private key. Details: $m"
-            m.contains("End of IO Stream", true) || m.contains("Connection reset", true) ->
-                "Server closed the connection during handshake. Often: account already has 2 sessions, server overload, or network block. Try again or disconnect other devices. Details: $m"
-            m.contains("timeout", true) || m.contains("timed out", true) ->
-                "SSH connection timed out; check host, port, and network. Details: $m"
-            m.contains("refused", true) ->
-                "SSH connection refused; check host and port. Details: $m"
-            m.contains("UnknownHost", true) || m.contains("Unable to resolve", true) || m.contains("unresolved", true) ->
-                "Server hostname could not be resolved. Details: $m"
-            m.contains("UnsatisfiedLink", true) || m.contains("native library", true) ->
-                "Native tunnel library failed to load. Details: $m"
-            m.contains("another VPN", true) || m.contains("permission denied", true) ->
-                "Could not start VPN. Turn off any other active VPN and try again. Details: $m"
-            else -> m.take(280)
-        }
+        return messages.joinToString(" | ").ifBlank { t.javaClass.simpleName }
     }
 
-    @Synchronized
     private fun shutdown(message: String, status: Status) {
-        if (stopping && status == Status.ERROR) return
+        if (stopping) return
         stopping = true
-        userStop.set(status == Status.DISCONNECTED || userStop.get())
+        LogStore.append(if (status == Status.ERROR) "[ERROR] $message" else message)
+        try { teardownSessionOnly() } catch (_: Exception) {}
         unregisterNetworkCallback()
-        teardownSessionOnly()
-        activeConfig = null
         VpnState.update(status, message)
-        try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
+        try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {
+            try { stopForeground(true) } catch (_: Exception) {}
+        }
         stopSelf()
     }
 
-    override fun onRevoke() {
-        userStop.set(true)
-        shutdown("VPN permission revoked", Status.DISCONNECTED)
-    }
-
-    override fun onDestroy() {
-        if (!stopping) {
-            userStop.set(true)
-            shutdown("Disconnected", Status.DISCONNECTED)
-        }
-        super.onDestroy()
-    }
-
     private fun startForegroundCompat(text: String) {
-        val n = buildNotification(text)
-        try {
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            } else if (Build.VERSION.SDK_INT >= 29) {
-                @Suppress("DEPRECATION")
-                startForeground(NOTIF_ID, n, 0)
-            } else {
-                startForeground(NOTIF_ID, n)
-            }
-        } catch (t: Throwable) {
-            LogStore.append("startForeground typed failed: ${t.message}; retry plain")
-            startForeground(NOTIF_ID, n)
+        createChannel()
+        val notif = buildNotification(text)
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIF_ID, notif)
         }
     }
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text))
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(NOTIF_ID, buildNotification(text))
+    }
+
+    private fun createChannel() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "VPN", NotificationManager.IMPORTANCE_LOW),
+            )
+        }
     }
 
     private fun buildNotification(text: String): Notification {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Karoon Tunnel", NotificationManager.IMPORTANCE_LOW)
-        )
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
