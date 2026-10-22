@@ -32,18 +32,18 @@ class XrayEngine(private val context: Context) {
         process = p
         running.set(true)
 
-        // Drain logs so the process does not block on full stdout buffer
         Thread({
             try {
                 p.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
-                        if (line.isNotBlank() && !line.contains("""""level":"debug"""")) {
-                            val short = line.take(220)
-                            if (short.contains("error", true) || short.contains("failed", true) ||
-                                short.contains("warning", true)
-                            ) {
-                                LogStore.append("Xray: $short")
-                            }
+                        if (line.isBlank()) return@forEach
+                        if (line.contains("\"level\":\"debug\"")) return@forEach
+                        val short = line.take(220)
+                        if (short.contains("error", true) ||
+                            short.contains("failed", true) ||
+                            short.contains("warning", true)
+                        ) {
+                            LogStore.append("Xray: $short")
                         }
                     }
                 }
@@ -51,10 +51,9 @@ class XrayEngine(private val context: Context) {
             }
         }, "xray-log").also { it.isDaemon = true; it.start() }
 
-        // Wait briefly for SOCKS to bind
         var ready = false
-        repeat(30) {
-            if (!running.get()) break
+        var i = 0
+        while (i < 30 && running.get() && !ready) {
             try {
                 java.net.Socket().use { s ->
                     s.connect(java.net.InetSocketAddress("127.0.0.1", socksPort), 200)
@@ -63,7 +62,7 @@ class XrayEngine(private val context: Context) {
             } catch (_: Exception) {
                 Thread.sleep(100)
             }
-            if (ready) return@repeat
+            i++
         }
         if (!ready) {
             val alive = try { p.isAlive } catch (_: Exception) { false }
@@ -97,7 +96,6 @@ class XrayEngine(private val context: Context) {
         val out = File(context.filesDir, "xray")
         if (out.exists() && out.canExecute() && out.length() > 1_000_000) return out
 
-        // Prefer ABI-specific asset; fall back to generic name
         val abis = BuildAbis.preferred()
         val assetManager = context.assets
         var copied = false
@@ -218,7 +216,7 @@ class XrayEngine(private val context: Context) {
                         val arr = JSONArray()
                         cfg.alpn.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                             .forEach { arr.put(it) }
-                        if (arr.length() > 0) tls.put("alpn", arr)
+                                               if (arr.length() > 0) tls.put("alpn", arr)
                     }
                     tls.put("allowInsecure", true)
                     stream.put("tlsSettings", tls)
