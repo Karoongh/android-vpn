@@ -12,16 +12,14 @@ android {
         applicationId = "com.example.sshvpn"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.8"
+        versionCode = 4
+        versionName = "1.9"
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
     }
 
-    // Fixed key so every CI build can update over the previous install.
-    // Credentials documented in keystore/SIGNING.md
     signingConfigs {
         create("karoon") {
             val ks = rootProject.file("keystore/karoon-debug.jks")
