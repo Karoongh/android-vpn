@@ -391,7 +391,7 @@ class MainActivity : Activity() {
         }
         col.addView(etMaxChannels, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         col.addView(TextView(this).apply {
-            text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 1.9\nSigning: keystore/SIGNING.md"
+            text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 2.0.0\nSigning: keystore/SIGNING.md"
             textSize = 12f; setTextColor(MUTED); setPadding(0, dp(16), 0, 0)
         })
         scroll.addView(col)
