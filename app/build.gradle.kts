@@ -9,11 +9,12 @@ android {
     ndkVersion = "26.1.10909125"
 
     defaultConfig {
-        applicationId = "com.example.sshvpn"
+        // Production applicationId for Play / sideload (distinct from sample com.example.*)
+        applicationId = "app.karoon.tunnel"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.9"
+        versionCode = 5
+        versionName = "2.0.0"
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")

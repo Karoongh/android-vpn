@@ -1,4 +1,4 @@
-# Google Play preparation — Karoon Tunnel v1.9
+# Google Play preparation — Karoon Tunnel v2.0.0
 
 This guide helps you publish **Karoon Tunnel** in a way that matches Google Play policies for VPN apps. It is not legal advice.
 
@@ -7,13 +7,13 @@ This guide helps you publish **Karoon Tunnel** in a way that matches Google Play
 | Field | Value |
 | --- | --- |
 | Display name | Karoon Tunnel |
-| versionName | **1.9** |
-| versionCode | **4** |
-| applicationId | `com.example.sshvpn` (change before production if needed) |
+| versionName | **2.0.0** |
+| versionCode | **5** |
+| applicationId | **`app.karoon.tunnel`** |
 | minSdk | 26 |
 | targetSdk | 34 |
 
-> **Important:** `com.example.*` IDs are unsuitable for a long-term Play listing. Before release, set a unique applicationId (e.g. `app.karoon.tunnel`) and ship with **Play App Signing** and your own upload key — not the sample debug keystore in this repo.
+> Use **Play App Signing** and your own **upload keystore**. Do not upload builds signed only with the sample `keystore/karoon-debug.jks` from this repository.
 
 ## Suggested store listing (English)
 
@@ -69,16 +69,16 @@ Declare the **VPN service** use case accurately when prompted.
 
 ## VPN policy checklist
 
-- [ ] Privacy Policy URL publicly reachable (GitHub raw or your site) — use `PRIVACY.md`
+- [ ] Privacy Policy URL publicly reachable (GitHub or your site) — use `PRIVACY.md`
 - [ ] Listing states clearly that **users bring their own servers**
 - [ ] No misleading “unlimited free VPN” claims
 - [ ] Target API level meets current Play requirements
 - [ ] Foreground service type and notifications comply with current rules
 - [ ] Production signing (Play App Signing) configured
-- [ ] Content rating questionnaire completed (usually low risk for a utility client)
-- [ ] Export compliance / cryptography declarations if asked (standard TLS/SSH crypto)
+- [ ] Content rating questionnaire completed
+- [ ] Export compliance / cryptography declarations if asked
 
-## Permissions text (for Play “permissions” justification)
+## Permissions text (for Play justification)
 
 - **VPN:** Required to create a system-wide tunnel to the user’s proxy/SSH server after consent.  
 - **Internet / network state:** Connect to user-defined endpoints; detect connectivity.  
@@ -87,11 +87,11 @@ Declare the **VPN service** use case accurately when prompted.
 
 ## Release build notes
 
-1. Replace sample keystore; enable minify/shrink only after testing.  
-2. Bump `versionCode` on every Play upload; keep `versionName` human-readable (e.g. 1.9, 1.10).  
+1. Keep `applicationId` as `app.karoon.tunnel` (or your final id) for all Play uploads of this listing.  
+2. Bump `versionCode` on every Play upload; keep `versionName` human-readable.  
 3. Attach a privacy policy URL in Play Console.  
 4. Test on arm64-v8a hardware: install, VPN consent, connect, disconnect, uninstall.  
-5. Prefer AAB (`bundleRelease`) for Play instead of universal APK when ready.
+5. Prefer AAB (`bundleRelease`) for Play.
 
 ## Support
 

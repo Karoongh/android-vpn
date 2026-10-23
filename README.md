@@ -1,11 +1,27 @@
 # Karoon Tunnel
 
-**Version 1.9** (versionCode 4)
+**Version 2.0.0** (versionCode 5) · applicationId `app.karoon.tunnel`
 
 Open-source Android VPN client. You bring your own servers and configuration links. The app does **not** sell, host, or include any VPN service accounts.
 
 [![Android](https://img.shields.io/badge/Android-8.0%2B-green)](https://github.com/Karoongh/android-vpn)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+---
+
+## فارسی (خلاصه)
+
+**کارون تانل** یک کلاینت VPN متن‌باز برای اندروید است. سرور و لینک کانفیگ را **خودتان** وارد می‌کنید؛ برنامه هیچ سرور یا اشتراک رایگانی ارائه نمی‌دهد.
+
+- **نسخه:** 2.0.0  
+- **پروتکل‌ها:** SSH · VLESS · VMess · Trojan · Shadowsocks  
+- **ورود لینک:** `vless://` `vmess://` `trojan://` `ss://` `ssh://`  
+- **بدون روت** · اندروید ۸ به بالا  
+- سیاست حریم خصوصی: [PRIVACY.md](PRIVACY.md)  
+- راهنمای انتشار پلی: [docs/PLAY_STORE.md](docs/PLAY_STORE.md)
+
+با تغییر `applicationId` به `app.karoon.tunnel`، نصب این نسخه به‌عنوان **برنامه جدید** کنار نسخه قدیمی (`com.example.sshvpn`) دیده می‌شود و جایگزین خودکار آن نیست.
 
 ---
 
@@ -41,6 +57,7 @@ Apps → Android VpnService (TUN)
 | ABIs | arm64-v8a, armeabi-v7a, x86, x86_64 |
 | Root | Not required |
 | Account | None — you supply your own configs |
+| applicationId | `app.karoon.tunnel` |
 
 ---
 
@@ -53,6 +70,8 @@ Apps → Android VpnService (TUN)
 5. On Android 13+, allow notifications if you want the connection status notification.
 
 **Configs → Import link** and paste a share URL, or **Add new** and pick a protocol.
+
+> **Note:** Builds with `app.karoon.tunnel` do not auto-update installs that used `com.example.sshvpn`. Uninstall the old package if you want a single icon.
 
 ---
 
@@ -134,4 +153,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-**Karoon Tunnel** · v1.9 · Open source · Bring your own server
+**Karoon Tunnel** · v2.0.0 · `app.karoon.tunnel` · Open source · Bring your own server

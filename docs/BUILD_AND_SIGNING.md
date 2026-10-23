@@ -1,6 +1,7 @@
 # Build and signing — Karoon Tunnel
 
-**Current version:** 1.9 (versionCode 4)
+**Current version:** 2.0.0 (versionCode 5)  
+**applicationId:** `app.karoon.tunnel`
 
 ## Prerequisites
 
@@ -29,25 +30,31 @@ GitHub Actions workflow `.github/workflows/android-build.yml` produces the `karo
 
 ## Sample keystore (development only)
 
-The repository includes a **development** keystore under `keystore/` so incremental installs do not require uninstall. Passwords and alias are documented in `keystore/SIGNING.md` if present.
+The repository includes a **development** keystore under `keystore/` so incremental installs of the *same* applicationId do not require uninstall. Passwords and alias are documented in `keystore/SIGNING.md` if present.
 
 **Do not use this keystore for Play Store production.** Generate your own upload key and enroll in Play App Signing.
 
+## applicationId change (v2.0.0)
+
+From version **2.0.0**, `applicationId` is `app.karoon.tunnel`. Older builds used `com.example.sshvpn`. Android treats these as **different apps**. Users must install the new package separately (or uninstall the old one).
+
+Kotlin source package / `namespace` remains `com.example.sshvpn` unless you later migrate packages.
+
 ## Release checklist
 
-1. Change `applicationId` away from `com.example.sshvpn` for production.
-2. Configure `signingConfigs` with your upload keystore (store secrets in CI, not in git).
-3. Bump `versionCode` and `versionName` in `app/build.gradle.kts`.
+1. Confirm `applicationId` in `app/build.gradle.kts`.
+2. Configure `signingConfigs` with your upload keystore (secrets in CI, not in git).
+3. Bump `versionCode` and `versionName` before each store upload.
 4. `./gradlew :app:bundleRelease` for Play (AAB) or `assembleRelease` for sideload APK.
-5. Verify ABI splits / universal package size and crash-free open on a physical device.
+5. Verify on a physical device: cold start, VPN consent, connect/disconnect.
 
 ## Signature mismatch on install
 
-`Package signature does not match the installed app` means the new APK is signed with a different key than the installed app. Uninstall the old app (data is wiped) or always sign with the same key for updates.
+`Package signature does not match the installed app` means the new APK is signed with a different key than the installed app **with the same applicationId**. Uninstall the old app or always sign updates with the same key.
 
 ## Related docs
 
-- [README.md](../README.md) — product overview
+- [README.md](../README.md) — product overview (EN + short FA)
 - [PRIVACY.md](../PRIVACY.md) — privacy policy
 - [docs/PLAY_STORE.md](PLAY_STORE.md) — Play Console guidance
 - [CHANGELOG.md](../CHANGELOG.md) — version history

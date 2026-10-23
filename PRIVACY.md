@@ -1,7 +1,8 @@
 # Privacy Policy — Karoon Tunnel
 
 **Last updated:** 2026-10-23  
-**App version covered:** 1.9 and later  
+**App version covered:** 2.0.0 and later  
+**applicationId:** `app.karoon.tunnel`  
 **Developer / publisher:** Karoon (repository: [Karoongh/android-vpn](https://github.com/Karoongh/android-vpn))
 
 This privacy policy applies to the Android application **Karoon Tunnel** (“the App”).

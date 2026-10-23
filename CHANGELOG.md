@@ -3,7 +3,21 @@
 All notable changes to **Karoon Tunnel** are documented here.
 
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
-Versioning uses a simple `MAJOR.MINOR` app `versionName` with monotonic `versionCode`.
+Versioning uses app `versionName` with monotonic `versionCode`.
+
+## [2.0.0] — 2026-10-23 (versionCode 5)
+
+### Changed
+
+- **applicationId** set to `app.karoon.tunnel` (production-ready; no longer `com.example.sshvpn`)
+- **versionName** `2.0.0` / **versionCode** `5`
+- README: short Persian section for GitHub visitors
+- Play / build docs aligned with the new id and version
+
+### Notes
+
+- Installing  coexists with, but does not replace, older packages signed as `com.example.sshvpn`
+- Kotlin package / namespace remains `com.example.sshvpn` for source stability; only the install id changed
 
 ## [1.9] — 2026-10-23 (versionCode 4)
 
@@ -45,4 +59,4 @@ Versioning uses a simple `MAJOR.MINOR` app `versionName` with monotonic `version
 ## Unreleased
 
 - Broader on-device validation of Xray protocols with production share links
-- Production applicationId and Play App Signing keystore (publisher responsibility)
+- Publisher-owned Play App Signing upload key (do not use the sample debug keystore on Play)
