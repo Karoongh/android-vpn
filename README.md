@@ -1,63 +1,137 @@
-# Karoon Tunnel (SSH VPN for Android)
+# Karoon Tunnel
 
-یک برنامه VPN برای اندروید که ترافیک TCP را از طریق یک سرور SSH عبور می‌دهد.
+**Version 1.9** (versionCode 4)
 
-## معماری کلی
+Open-source Android VPN client. You bring your own servers and configuration links. The app does **not** sell, host, or include any VPN service accounts.
+
+[![Android](https://img.shields.io/badge/Android-8.0%2B-green)](https://github.com/Karoongh/android-vpn)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+---
+
+## Features
+
+- **Protocols:** SSH (Direct / UDPGW), VLESS, VMess, Trojan, Shadowsocks
+- **Import formats:** `vless://` · `vmess://` · `trojan://` · `ss://` · `ssh://` · JSON · key=value · Base64 / multi-line subscriptions
+- **Multiple profiles** — save, select, edit, delete
+- **Device-wide tunnel** via Android `VpnService` + hev-socks5-tunnel (no root)
+- **Live traffic charts** (uplink / downlink) and session totals
+- **Copyable logs** for troubleshooting
+- **Speed / stats tab**
+- **English UI**
+
+### Architecture (high level)
 
 ```
-برنامه‌ها → TUN (VpnService) → hev-socks5-tunnel (tun2socks)
-→ SOCKS5 محلی (127.0.0.1) → کانال direct-tcpip روی SSH → اینترنت
+Apps → Android VpnService (TUN)
+     → hev-socks5-tunnel (tun2socks)
+     → local SOCKS5
+         ├─ SSH path: JSch (direct-tcpip)
+         └─ VLESS / VMess / Trojan / SS: embedded Xray-core
+     → your remote server → Internet
 ```
 
-- DNS با mapdns داخل tun2socks گرفته می‌شود و نام دامنه‌ها سمت سرور SSH resolve می‌شوند.
-- ترافیک UDP به‌جز DNS (مثلاً QUIC و تماس‌های صوتی/تصویری) از SSH عبور نمی‌کند.
-- سرور باید `AllowTcpForwarding yes` داشته باشد.
-- Application ID فعلی: `com.example.sshvpn`.
+---
 
-## ساخت APK
+## Requirements
 
-1. پروژه را در Android Studio باز کنید.
-2. از SDK Manager، ابزارهای NDK (Side by side) نسخه `26.1.10909125` و CMake را نصب کنید.
-3. منتظر بمانید Gradle Sync کامل شود.
-4. در ترمینال ریشه پروژه اجرا کنید:
-   - Windows: `gradlew.bat :app:assembleDebug`
-   - macOS/Linux: `./gradlew :app:assembleDebug`
-5. خروجی Debug در `app/build/outputs/apk/debug/app-debug.apk` قرار می‌گیرد.
-
-برای جزئیات Build، عیب‌یابی نصب و امضای APK، فایل [راهنمای Build و Signing](docs/BUILD_AND_SIGNING.md) را بخوانید. دستورالعمل‌های لازم برای ایجنت‌های کدنویسی در [agents.md](agents.md) آمده است.
-
-### وابستگی native
-
-اگر خطای سورس native دیدید، بررسی کنید پوشه `app/src/main/jni/hev-socks5-tunnel/third-part/` شامل پوشه‌های `lwip`، `yaml` و `hev-task-system` و محتوای کامل آن‌ها باشد.
-
-## فرمت‌های کانفیگ قابل وارد کردن
-
-| فرمت | مثال |
+| Item | Value |
 | --- | --- |
-| لینک SSH | `ssh://user:pass@1.2.3.4:22#نام` |
-| ساده | `1.2.3.4:22@user:pass` |
-| چهار بخشی | `1.2.3.4:22:user:pass` |
-| JSON | `{"host":"1.2.3.4","port":22,"username":"user","password":"pass"}` |
-| key=value | خط‌های `host=` و `port=` و `user=` و `pass=` |
-| base64 | هر کدام از موارد بالا به‌صورت base64 |
+| Android | 8.0 (API 26) or newer |
+| ABIs | arm64-v8a, armeabi-v7a, x86, x86_64 |
+| Root | Not required |
+| Account | None — you supply your own configs |
 
-با دکمه «از کلیپ‌بورد» یا «از فایل» وارد کنید یا فیلدها را دستی پر کنید. احراز هویت با کلید خصوصی (PEM/OpenSSH) هم پشتیبانی می‌شود.
+---
 
-## محدودیت‌ها و ملاحظات امنیتی
+## Install (users)
 
-- بررسی کلید میزبان SSH غیرفعال است (`StrictHostKeyChecking=no`)؛ در نتیجه امکان تشخیص سرور جعلی در حمله MITM وجود ندارد.
-- رمز و کانفیگ در SharedPreferences ذخیره می‌شود و رمزگذاری جداگانه ندارد.
-- IPv6 از تونل عبور نمی‌کند.
-- اتصال خودکار مجدد پس از قطع SSH وجود ندارد.
-- تا وقتی روی دستگاه واقعی آزمایش نشده، عملکرد کامل VPN تأییدشده محسوب نمی‌شود.
+1. Download a signed APK from [GitHub Actions artifacts](https://github.com/Karoongh/android-vpn/actions) or a published release.
+2. Enable installation from the source you trust (unknown sources / Files app).
+3. Install and open **Karoon Tunnel**.
+4. Grant the **VPN connection** permission when prompted.
+5. On Android 13+, allow notifications if you want the connection status notification.
 
-## وابستگی‌ها و مجوزها
+**Configs → Import link** and paste a share URL, or **Add new** and pick a protocol.
+
+---
+
+## Build from source
+
+```bash
+git clone --recursive https://github.com/Karoongh/android-vpn.git
+cd android-vpn
+./gradlew :app:assembleDebug
+# APK: app/build/outputs/apk/debug/
+```
+
+- NDK **26.1.10909125** (or compatible) and Android SDK 34
+- Details: [docs/BUILD_AND_SIGNING.md](docs/BUILD_AND_SIGNING.md)
+
+For Play Store / production, use your **own** upload keystore. Do not ship the sample debug keystore in production builds.
+
+---
+
+## Permissions
+
+| Permission | Why |
+| --- | --- |
+| `INTERNET` | Connect to your proxy/SSH server |
+| `ACCESS_NETWORK_STATE` | Detect network changes / reconnect behavior |
+| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_SPECIAL_USE` | Keep the VPN service alive with a visible notification |
+| `POST_NOTIFICATIONS` (API 33+) | Optional status notification |
+| VPN service (`BIND_VPN_SERVICE`) | System VPN API — user must approve each time or use Always-on VPN |
+
+The app does not request location, contacts, camera, microphone, or SMS.
+
+---
+
+## Privacy
+
+- **No analytics SDK**, no ads, no third-party tracking.
+- Configs and passwords are stored **only on the device** (SharedPreferences).
+- Traffic is sent only to **servers you configure**.
+- Full policy: [PRIVACY.md](PRIVACY.md)
+
+---
+
+## Security notes
+
+- You are responsible for the trustworthiness of the servers and links you import.
+- SSH host key verification is currently relaxed for usability; treat untrusted networks accordingly.
+- Credentials are not encrypted at rest beyond normal Android app storage isolation.
+- This software is provided as-is; see [LICENSE](LICENSE).
+
+---
+
+## What this app is not
+
+- Not a commercial VPN subscription service
+- Does not include free public nodes or “one-tap unlimited VPN”
+- Does not guarantee anonymity, unblock every site, or hide activity from your configured server operator
+
+These statements are intentional for store compliance and user clarity.
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
+## Play Store listing notes
+
+See [docs/PLAY_STORE.md](docs/PLAY_STORE.md) for suggested store text, Data safety answers, and release checklist.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+### Third-party
 
 - [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel) — MIT
-- [mwiede/jsch](https://github.com/mwiede/jsch) — BSD
+- [mwiede/jsch](https://github.com/mwiede/jsch) — BSD-style
+- [Xray-core](https://github.com/XTLS/Xray-core) — MPL-2.0 (embedded binary for non-SSH protocols)
 
-## وضعیت بررسی خطای نصب (2026-10-12)
+---
 
-تصویر ارائه‌شده خطای `Package signature does not match the installed app` را نشان می‌دهد. این خطا به امضای APK و نسخه نصب‌شده مربوط است و به‌تنهایی خرابی سورس یا شکست کامپایل را اثبات نمی‌کند. پیش از حذف برنامه، امضای APK جدید و نصب‌شده را با راهنمای `docs/BUILD_AND_SIGNING.md` مقایسه کنید. حذف نصب ممکن است داده‌های محلی برنامه را پاک کند.
-
-**وضعیت فعلی:** علت کلی خطا مشخص است؛ اما تا زمان مقایسه گواهی نسخه نصب‌شده با APK جدید و اجرای واقعی Gradle build، ریشه دقیق اختلاف امضا و سلامت Build تأیید نشده‌اند.
+**Karoon Tunnel** · v1.9 · Open source · Bring your own server
