@@ -10,7 +10,10 @@ data class Profile(
     val config: SshConfig,
 ) {
     val displayName: String
-        get() = config.name.ifBlank { "${config.username}@${config.host}:${config.port}" }
+        get() = config.name.ifBlank {
+            val who = config.username.ifBlank { config.uuid.take(8).ifBlank { config.host } }
+            "$who@${config.host}:${config.port}"
+        }
 }
 
 /** Simple multi-profile store backed by SharedPreferences. */
