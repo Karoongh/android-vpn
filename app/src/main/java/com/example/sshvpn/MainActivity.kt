@@ -76,11 +76,29 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = BG; window.navigationBarColor = NAV_BG
-        profiles = ProfileStore(this); editingId = profiles.getActiveId(); buildUi()
-        VpnState.listener = { runOnUiThread { renderHome(); if (currentTab == 3) refreshLogs() } }
-        LogStore.listener = { runOnUiThread { if (currentTab == 3) refreshLogs() } }
-        renderHome(); showTab(0)
+        try {
+            window.statusBarColor = BG
+            window.navigationBarColor = NAV_BG
+            profiles = ProfileStore(this)
+            editingId = profiles.getActiveId()
+            buildUi()
+            VpnState.listener = { runOnUiThread { try { renderHome(); if (currentTab == 3) refreshLogs() } catch (_: Throwable) {} } }
+            LogStore.listener = { runOnUiThread { try { if (currentTab == 3) refreshLogs() } catch (_: Throwable) {} } }
+            renderHome()
+            showTab(0)
+        } catch (t: Throwable) {
+            val msg = "${t.javaClass.simpleName}: ${t.message}"
+            try { android.util.Log.e("KaroonTunnel", "onCreate crashed", t) } catch (_: Throwable) {}
+            val tv = TextView(this).apply {
+                text = "Startup error:\n$msg\n\nPlease reinstall or report this message."
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.BLACK)
+                setPadding(48, 48, 48, 48)
+                textSize = 14f
+            }
+            setContentView(tv)
+            try { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
+        }
     }
     override fun onDestroy() { stopSpeedMonitor(); VpnState.listener = null; LogStore.listener = null; super.onDestroy() }
     override fun onPause() { stopSpeedMonitor(); super.onPause() }
