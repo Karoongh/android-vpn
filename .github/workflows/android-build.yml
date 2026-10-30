@@ -15,10 +15,40 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Restore documented signing keystore
+      - name: Enforce signing-key immutability and app version increase
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          set -e
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --depth=1
+
+          # Never allow an ordinary PR to replace or modify the canonical signing key.
+          if ! git diff --quiet "origin/$BASE_REF...HEAD" -- keystore/karoon-debug.jks.base64; then
+            echo "::error::Canonical APK signing keystore was modified. Key rotation requires an explicitly approved migration."
+            exit 1
+          fi
+
+          # App-code changes intended for distribution must advance Android versionCode.
+          if git diff --name-only "origin/$BASE_REF...HEAD" | grep -q '^app/'; then
+            BASE_VERSION=$(git show "origin/$BASE_REF:app/build.gradle.kts" | sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*$/\1/p' | head -n1)
+            HEAD_VERSION=$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*$/\1/p' app/build.gradle.kts | head -n1)
+            test -n "$BASE_VERSION" && test -n "$HEAD_VERSION"
+            if [ "$HEAD_VERSION" -le "$BASE_VERSION" ]; then
+              echo "::error::versionCode must increase. Base=$BASE_VERSION, PR=$HEAD_VERSION"
+              exit 1
+            fi
+            echo "versionCode increased: $BASE_VERSION -> $HEAD_VERSION"
+          else
+            echo "No app/ files changed; version bump not required."
+          fi
+
+      - name: Restore canonical signing keystore
+        run: |
+          set -euo pipefail
           test -f keystore/karoon-debug.jks.base64
           base64 -d keystore/karoon-debug.jks.base64 > keystore/karoon-debug.jks
           test -s keystore/karoon-debug.jks
@@ -64,7 +94,6 @@ jobs:
             chmod +x "app/src/main/assets/xray/$abi/xray"
             ls -la "app/src/main/assets/xray/$abi/xray"
           done
-          # Require at least arm64
           test -s app/src/main/assets/xray/arm64-v8a/xray
 
       - name: Set up JDK 17
@@ -89,11 +118,18 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Verify APK signature
+      - name: Verify APK signature and canonical certificate
         run: |
+          set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$APK"
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK"
+          SIGNATURE_OUTPUT=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK")
+          printf '%s\n' "$SIGNATURE_OUTPUT"
+          EXPECTED_SHA256="06f03d3a6552183cf9a9fce276c1e9490e942c67fa51f885a5baec26fdbfd1b0"
+          if ! printf '%s\n' "$SIGNATURE_OUTPUT" | tr '[:upper:]' '[:lower:]' | grep -Fq "$EXPECTED_SHA256"; then
+            echo "::error::APK signer does not match the project's canonical signing certificate."
+            exit 1
+          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
