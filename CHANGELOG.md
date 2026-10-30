@@ -5,7 +5,7 @@ All notable changes to **Karoon Tunnel** are documented here.
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 Versioning uses app `versionName` with monotonic `versionCode`.
 
-## [2.1.1] — 2026-10-30 (versionCode 7)
+## [2.1.2] — 2026-10-30 (versionCode 8)\n\n### Changed\n\n- Improve button spacing, sizing, and visual hierarchy across the app.\n- Add Android ripple and press-scale feedback to navigation, main, and Logs/config action buttons.\n\n## [2.1.1] — 2026-10-30 (versionCode 7)
 
 ### Changed
 
