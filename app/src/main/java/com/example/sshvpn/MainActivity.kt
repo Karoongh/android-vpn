@@ -6,12 +6,14 @@ import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.res.ColorStateList
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -127,7 +129,8 @@ class MainActivity : Activity() {
         listOf("Home", "Configs", "Stats", "Logs", "More").forEachIndexed { i, label ->
             val tv = TextView(this).apply {
                 text = label; textSize = 11f; gravity = Gravity.CENTER; setTextColor(MUTED); setPadding(0, dp(8), 0, dp(8))
-                setOnClickListener { showTab(i) }
+                background = ripple(NAV_BG, 12)
+                setOnClickListener { animatePress(this); showTab(i) }
             }
             navButtons.add(tv)
             nav.addView(tv, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -156,7 +159,8 @@ class MainActivity : Activity() {
         col.addView(statusCard, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(28) })
         btnMain = Button(this).apply {
             text = "Connect"; textSize = 18f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
-            background = rounded(ACCENT, 28); setPadding(0, dp(18), 0, dp(18)); setOnClickListener { onMainButton() }
+            background = ripple(ACCENT, 28); setPadding(0, dp(18), 0, dp(18)); minHeight = dp(64); isAllCaps = false
+            elevation = dp(4).toFloat(); setOnClickListener { animatePress(this); onMainButton() }
         }
         col.addView(btnMain, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         col.addView(TextView(this).apply {
@@ -181,9 +185,9 @@ class MainActivity : Activity() {
         tvHomeStatus.setTextColor(color)
         tvHomeStatus.text = if (VpnState.message.isBlank()) label else "$label\n${VpnState.message}"
         when (st) {
-            Status.DISCONNECTED, Status.ERROR -> { btnMain.text = "Connect"; btnMain.isEnabled = true; btnMain.background = rounded(ACCENT, 28) }
-            Status.CONNECTING, Status.RECONNECTING -> { btnMain.text = if (st == Status.RECONNECTING) "Reconnecting..." else "Connecting..."; btnMain.isEnabled = true; btnMain.background = rounded(WARNING, 28) }
-            Status.CONNECTED -> { btnMain.text = "Disconnect"; btnMain.isEnabled = true; btnMain.background = rounded(ERROR, 28) }
+            Status.DISCONNECTED, Status.ERROR -> { btnMain.text = "Connect"; btnMain.isEnabled = true; btnMain.background = ripple(ACCENT, 28) }
+            Status.CONNECTING, Status.RECONNECTING -> { btnMain.text = if (st == Status.RECONNECTING) "Reconnecting..." else "Connecting..."; btnMain.isEnabled = true; btnMain.background = ripple(WARNING, 28) }
+            Status.CONNECTED -> { btnMain.text = "Disconnect"; btnMain.isEnabled = true; btnMain.background = ripple(ERROR, 28) }
         }
     }
 
@@ -596,15 +600,38 @@ class MainActivity : Activity() {
 
     private fun row(vararg views: View): LinearLayout {
         val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        views.forEach { r.addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }) }
+        views.forEachIndexed { index, view ->
+            r.addView(view, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                val halfGap = dp(4)
+                leftMargin = if (index == 0) 0 else halfGap
+                rightMargin = if (index == views.lastIndex) 0 else halfGap
+                topMargin = dp(4); bottomMargin = dp(4)
+            })
+        }
         return r
     }
     private fun smallBtn(label: String, onClick: () -> Unit) = Button(this).apply {
-        text = label; textSize = 12f; setTextColor(Color.WHITE); background = rounded(ACCENT, 10)
-        setPadding(dp(8), dp(8), dp(8), dp(8)); setOnClickListener { onClick() }
+        text = label; textSize = 12f; setTextColor(Color.WHITE); isAllCaps = false
+        minHeight = dp(44); minWidth = 0; elevation = dp(2).toFloat()
+        background = ripple(ACCENT, 10)
+        setPadding(dp(10), dp(10), dp(10), dp(10))
+        setOnClickListener { animatePress(this); onClick() }
     }
     private fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply {
         setColor(color); cornerRadius = resources.displayMetrics.density * radiusDp
+    }
+    private fun ripple(color: Int, radiusDp: Int) = RippleDrawable(
+        ColorStateList.valueOf(Color.parseColor("#55FFFFFF")),
+        rounded(color, radiusDp),
+        rounded(Color.WHITE, radiusDp),
+    )
+    private fun animatePress(view: View) {
+        view.animate().cancel()
+        view.scaleX = 1f; view.scaleY = 1f; view.alpha = 1f
+        view.animate().scaleX(0.96f).scaleY(0.96f).alpha(0.88f).setDuration(85L)
+            .withEndAction {
+                view.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(190L).start()
+            }.start()
     }
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 }
