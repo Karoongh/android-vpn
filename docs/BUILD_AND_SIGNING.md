@@ -41,7 +41,6 @@ All update APKs use the fixed project keystore:
 | Base64 keystore | `keystore/karoon-debug.jks.base64` |
 | Decoded keystore | `keystore/karoon-debug.jks` |
 | Alias | `karoon` |
-| Store/key password | `karoon_tunnel_debug` |
 | SHA-1 | `04:F8:E1:3B:FC:12:52:2F:59:E5:B8:E4:E4:9F:B1:82:C7:D8:07:BD` |
 | SHA-256 | `06:F0:3D:3A:65:52:18:3C:F9:A9:FC:E2:76:C1:E9:49:0E:94:2C:67:FA:51:F8:85:A5:BA:EC:26:FD:BF:D1:B0` |
 
