@@ -13,8 +13,8 @@ android {
         applicationId = "app.karoon.tunnel"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "2.0.0"
+        versionCode = 6
+        versionName = "2.1.0"
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
@@ -58,4 +58,5 @@ android {
 
 dependencies {
     implementation("com.github.mwiede:jsch:0.2.20")
+    implementation("androidx.core:core:1.13.1")
 }
