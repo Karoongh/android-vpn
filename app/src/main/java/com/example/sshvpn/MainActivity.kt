@@ -12,8 +12,6 @@ import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.LinearGradient
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -728,11 +726,30 @@ class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = lineColor }
     private var shimmer = 0f
     private var shimmerAnimator: ValueAnimator? = null
+    private var transitionAnimator: ValueAnimator? = null
 
     fun setSamples(list: List<Float>) {
-        samples.clear()
-        samples.addAll(list.takeLast(300))
-        invalidate()
+        val target = list.takeLast(300)
+        if (samples.isEmpty() || samples.size != target.size) {
+            samples.clear()
+            samples.addAll(target)
+            invalidate()
+            return
+        }
+        transitionAnimator?.cancel()
+        val start = samples.toList()
+        transitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 850L
+            interpolator = LinearInterpolator()
+            addUpdateListener { animator ->
+                val fraction = animator.animatedValue as Float
+                samples.indices.forEach { index ->
+                    samples[index] = start[index] + (target[index] - start[index]) * fraction
+                }
+                invalidate()
+            }
+            start()
+        }
     }
 
     fun startAnimation() {
@@ -752,6 +769,8 @@ class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
     fun stopAnimation() {
         shimmerAnimator?.cancel()
         shimmerAnimator = null
+        transitionAnimator?.cancel()
+        transitionAnimator = null
     }
 
     private fun smoothPath(points: List<Point>): android.graphics.Path {
@@ -778,8 +797,10 @@ class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
         if (samples.size < 2) return
 
         val maxV = samples.maxOrNull()?.coerceAtLeast(1f) ?: 1f
+        val inset = 6f * resources.displayMetrics.density
+        val plotWidth = (w - inset * 2f).coerceAtLeast(1f)
         val points = samples.mapIndexed { i, value ->
-            val x = i * w / 299f
+            val x = inset + i * plotWidth / 299f
             val y = h - (value / maxV) * (h * 0.88f) - h * 0.04f
             Point(x, y)
         }
