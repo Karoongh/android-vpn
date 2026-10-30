@@ -329,7 +329,11 @@ class SshVpnService : VpnService() {
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     networkAvailable.set(true)
-                    LogStore.append("Network available")
+                    LogStore.append("Network available: ${describeNetwork(cm, network)}")
+                }
+
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    LogStore.append("Network capabilities changed: ${describeCapabilities(caps)}")
                 }
 
                 override fun onLost(network: Network) {
@@ -337,7 +341,8 @@ class SshVpnService : VpnService() {
                     val caps = active?.let { cm.getNetworkCapabilities(it) }
                     val stillUp = caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     networkAvailable.set(stillUp)
-                    if (!stillUp) LogStore.append("Network lost")
+                    LogStore.append("Network lost callback; anotherInternetNetwork=$stillUp " +
+                        "active=${if (active != null && caps != null) describeNetwork(cm, active) else "none"}")
                 }
             }
             networkCallback = cb
@@ -354,6 +359,24 @@ class SshVpnService : VpnService() {
             LogStore.append("Network callback setup failed: ${e.message}")
             networkAvailable.set(true)
         }
+    }
+
+    private fun describeNetwork(cm: ConnectivityManager, network: Network): String {
+        val caps = cm.getNetworkCapabilities(network) ?: return "capabilities=unavailable"
+        return describeCapabilities(caps)
+    }
+
+    private fun describeCapabilities(caps: NetworkCapabilities): String {
+        val transports = mutableListOf<String>()
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) transports += "wifi"
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) transports += "cellular"
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) transports += "ethernet"
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) transports += "vpn"
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) transports += "bluetooth"
+        return "transports=${transports.joinToString("+").ifBlank { "other" }} " +
+            "internet=${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)} " +
+            "validated=${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)} " +
+            "metered=${!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)}"
     }
 
     private fun unregisterNetworkCallback() {
