@@ -5,6 +5,18 @@ All notable changes to **Karoon Tunnel** are documented here.
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 Versioning uses app `versionName` with monotonic `versionCode`.
 
+## [2.1.0] — 2026-10-30 (versionCode 6)
+
+### Added
+
+- Share diagnostic logs as a TXT attachment through the native Android Sharesheet.
+- Show a privacy warning before sharing logs.
+- Expose only the app-private temporary log folder through a non-exported FileProvider.
+
+### Changed
+
+- Enable AndroidX and add AndroidX Core FileProvider support.
+
 ## [2.0.0] — 2026-10-23 (versionCode 5)
 
 ### Changed
@@ -16,7 +28,7 @@ Versioning uses app `versionName` with monotonic `versionCode`.
 
 ### Notes
 
-- Installing  coexists with, but does not replace, older packages signed as `com.example.sshvpn`
+- Installing coexists with, but does not replace, older packages signed as `com.example.sshvpn`
 - Kotlin package / namespace remains `com.example.sshvpn` for source stability; only the install id changed
 
 ## [1.9] — 2026-10-23 (versionCode 4)
