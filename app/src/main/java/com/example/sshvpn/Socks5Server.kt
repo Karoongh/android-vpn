@@ -52,11 +52,15 @@ class Socks5Server(
 
     val port: Int get() = server?.localPort ?: -1
 
+    fun diagnosticsSummary(): String =
+        "socksActive=${active.get()}/$limit socksOk=${okCount.get()} socksFail=${failCount.get()} " +
+            "channelOpensInFlight=${MAX_OPENS_IN_FLIGHT - openGate.availablePermits()}"
+
     fun start() {
         val s = ServerSocket(0, 512, InetAddress.getByName("127.0.0.1"))
         server = s
         running = true
-        LogStore.append("SOCKS limit=$limit opens<=$MAX_OPENS_IN_FLIGHT (stable mode)")
+        LogStore.append("SOCKS listener started port=${s.localPort} limit=$limit opens<=$MAX_OPENS_IN_FLIGHT")
         pool.execute {
             while (running) {
                 try {
