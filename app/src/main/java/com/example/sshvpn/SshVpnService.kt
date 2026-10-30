@@ -14,6 +14,7 @@ import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.system.OsConstants
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
@@ -52,6 +53,7 @@ class SshVpnService : VpnService() {
     private val networkAvailable = AtomicBoolean(true)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        LogStore.init(applicationContext)
         try {
             when (intent?.action) {
                 ACTION_STOP -> {
@@ -227,10 +229,18 @@ class SshVpnService : VpnService() {
                 throw IllegalStateException("Failed to start hev-socks5-tunnel")
             }
             LogStore.append("Tunnel started successfully")
-            probeThroughSocks(socksPort)
+            val initialProbeOk = probeThroughSocks(socksPort)
+            LogStore.append("DIAG initial state: protocol=${cfg.displayProtocol()} socksPort=$socksPort " +
+                "sshConnected=${session?.isConnected ?: "n/a"} xrayRunning=${xray?.isRunning() ?: "n/a"} " +
+                "tunOpen=${tun?.fileDescriptor?.valid() ?: false} initialProbe=${if (initialProbeOk) "OK" else "FAIL"}")
 
             VpnState.update(Status.CONNECTED, "Connected to ${cfg.host}")
             updateNotification("Connected to ${cfg.host}")
+
+            var lastHealthCheck = SystemClock.elapsedRealtime()
+            var lastUpBytes = TunnelStats.uplink.get()
+            var lastDownBytes = TunnelStats.downlink.get()
+            LogStore.append("DIAG monitor started: healthInterval=30s protocol=${cfg.displayProtocol()}")
 
             while (!stopping && !userStop.get()) {
                 Thread.sleep(1500)
@@ -254,6 +264,26 @@ class SshVpnService : VpnService() {
                             return false
                         }
                     }
+                }
+
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastHealthCheck >= 30_000L) {
+                    lastHealthCheck = now
+                    val up = TunnelStats.uplink.get()
+                    val down = TunnelStats.downlink.get()
+                    val upDelta = up - lastUpBytes
+                    val downDelta = down - lastDownBytes
+                    lastUpBytes = up
+                    lastDownBytes = down
+                    val sshState = session?.isConnected?.toString() ?: "n/a"
+                    val xrayState = xray?.isRunning()?.toString() ?: "n/a"
+                    val socksState = socks?.diagnosticsSummary() ?: "xray-socks"
+                    LogStore.append("DIAG heartbeat uptime=${now / 1000}s ssh=$sshState xray=$xrayState " +
+                        "tunOpen=${tun?.fileDescriptor?.valid() ?: false} $socksState " +
+                        "trafficUp=+$upDelta B trafficDown=+$downDelta B totalUp=$up B totalDown=$down B")
+                    val probeOk = probeThroughSocks(socksPort)
+                    LogStore.append("DIAG health result=${if (probeOk) "OK" else "FAIL"} " +
+                        "ssh=$sshState xray=$xrayState socksPort=$socksPort")
                 }
             }
             return true
@@ -299,7 +329,11 @@ class SshVpnService : VpnService() {
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     networkAvailable.set(true)
-                    LogStore.append("Network available")
+                    LogStore.append("Network available: ${describeNetwork(cm, network)}")
+                }
+
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    LogStore.append("Network capabilities changed: ${describeCapabilities(caps)}")
                 }
 
                 override fun onLost(network: Network) {
@@ -307,7 +341,8 @@ class SshVpnService : VpnService() {
                     val caps = active?.let { cm.getNetworkCapabilities(it) }
                     val stillUp = caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     networkAvailable.set(stillUp)
-                    if (!stillUp) LogStore.append("Network lost")
+                    LogStore.append("Network lost callback; anotherInternetNetwork=$stillUp " +
+                        "active=${if (active != null && caps != null) describeNetwork(cm, active) else "none"}")
                 }
             }
             networkCallback = cb
@@ -324,6 +359,24 @@ class SshVpnService : VpnService() {
             LogStore.append("Network callback setup failed: ${e.message}")
             networkAvailable.set(true)
         }
+    }
+
+    private fun describeNetwork(cm: ConnectivityManager, network: Network): String {
+        val caps = cm.getNetworkCapabilities(network) ?: return "capabilities=unavailable"
+        return describeCapabilities(caps)
+    }
+
+    private fun describeCapabilities(caps: NetworkCapabilities): String {
+        val transports = mutableListOf<String>()
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) transports += "wifi"
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) transports += "cellular"
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) transports += "ethernet"
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) transports += "vpn"
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) transports += "bluetooth"
+        return "transports=${transports.joinToString("+").ifBlank { "other" }} " +
+            "internet=${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)} " +
+            "validated=${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)} " +
+            "metered=${!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)}"
     }
 
     private fun unregisterNetworkCallback() {
@@ -365,27 +418,37 @@ class SshVpnService : VpnService() {
         }
     }
 
-    private fun probeThroughSocks(socksPort: Int) {
-        Thread {
-            try {
-                val proxy = java.net.Proxy(
-                    java.net.Proxy.Type.SOCKS,
-                    java.net.InetSocketAddress("127.0.0.1", socksPort),
-                )
-                val url = java.net.URL("https://www.cloudflare.com/cdn-cgi/trace")
-                val conn = url.openConnection(proxy) as java.net.HttpURLConnection
-                conn.connectTimeout = 12000
-                conn.readTimeout = 12000
-                conn.instanceFollowRedirects = false
-                conn.connect()
-                val code = conn.responseCode
-                val n = try { conn.inputStream.readBytes().size } catch (_: Exception) { 0 }
-                conn.disconnect()
-                LogStore.append("Probe via SOCKS: HTTP $code bytes=$n")
-            } catch (e: Exception) {
-                LogStore.append("Probe via SOCKS failed: ${e.javaClass.simpleName}: ${e.message}")
-            }
-        }.also { it.isDaemon = true; it.start() }
+    /**
+     * Makes a real HTTPS request through the local SOCKS listener.
+     * This does not use the phone's default network path directly.
+     */
+    private fun probeThroughSocks(socksPort: Int): Boolean {
+        var conn: java.net.HttpURLConnection? = null
+        val started = SystemClock.elapsedRealtime()
+        return try {
+            val proxy = java.net.Proxy(
+                java.net.Proxy.Type.SOCKS,
+                java.net.InetSocketAddress("127.0.0.1", socksPort),
+            )
+            val url = java.net.URL("https://www.gstatic.com/generate_204")
+            conn = url.openConnection(proxy) as java.net.HttpURLConnection
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 8_000
+            conn.instanceFollowRedirects = false
+            conn.useCaches = false
+            conn.requestMethod = "GET"
+            val code = conn.responseCode
+            val elapsed = SystemClock.elapsedRealtime() - started
+            val ok = code == 204
+            LogStore.append("DIAG probe ${if (ok) "OK" else "BAD"} via SOCKS: HTTP=$code latency=${elapsed}ms")
+            ok
+        } catch (e: Exception) {
+            val elapsed = SystemClock.elapsedRealtime() - started
+            LogStore.append("DIAG probe FAIL via SOCKS: ${e.javaClass.simpleName}: ${e.message} latency=${elapsed}ms")
+            false
+        } finally {
+            try { conn?.disconnect() } catch (_: Exception) {}
+        }
     }
 
     private fun pickFreePort(): Int {

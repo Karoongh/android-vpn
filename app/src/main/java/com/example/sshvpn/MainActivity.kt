@@ -33,6 +33,7 @@ class MainActivity : Activity() {
     private companion object {
         const val REQ_VPN = 1
         const val REQ_NOTIF = 4
+        const val REQ_LOG_EXPORT = 5
         val BG = Color.parseColor("#0B1220")
         val CARD = Color.parseColor("#1A2332")
         val ACCENT = Color.parseColor("#3B82F6")
@@ -65,6 +66,7 @@ class MainActivity : Activity() {
     private lateinit var etMaxChannels: EditText
     private val navButtons = ArrayList<TextView>()
     private var currentTab = 0
+    private var pendingLogExport: String = ""
     private val mainHandler = Handler(Looper.getMainLooper())
     private var speedRunning = false
     private val upSamples = ArrayDeque<Float>(60)
@@ -79,6 +81,7 @@ class MainActivity : Activity() {
         try {
             window.statusBarColor = BG
             window.navigationBarColor = NAV_BG
+            LogStore.init(applicationContext)
             profiles = ProfileStore(this)
             editingId = profiles.getActiveId()
             buildUi()
@@ -367,7 +370,11 @@ class MainActivity : Activity() {
     private fun buildLogsTab(): LinearLayout {
         val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG); setPadding(dp(12), dp(16), dp(12), dp(8)) }
         outer.addView(TextView(this).apply { text = "Logs"; textSize = 18f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD; setPadding(dp(4), 0, 0, dp(8)) })
-        outer.addView(row(smallBtn("Copy") { copyLogs() }, smallBtn("Clear") { LogStore.clear(); refreshLogs() }))
+        outer.addView(row(
+            smallBtn("Copy") { copyLogs() },
+            smallBtn("Save TXT") { saveLogsToFile() },
+            smallBtn("Clear") { LogStore.clear(); refreshLogs() },
+        ))
         val scroll = ScrollView(this)
         tvLogs = TextView(this).apply { setTextColor(MUTED); textSize = 11f; setTextIsSelectable(true); setPadding(dp(8), dp(8), dp(8), dp(8)); typeface = Typeface.MONOSPACE }
         scroll.addView(tvLogs)
@@ -378,6 +385,24 @@ class MainActivity : Activity() {
     private fun copyLogs() {
         (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("logs", LogStore.text()))
         toast("Logs copied")
+    }
+
+    private fun saveLogsToFile() {
+        pendingLogExport = LogStore.text()
+        if (pendingLogExport.isBlank()) {
+            toast("No logs to save")
+            return
+        }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TITLE, "karoon-vpn-diagnostics.txt")
+        }
+        try {
+            startActivityForResult(intent, REQ_LOG_EXPORT)
+        } catch (e: Exception) {
+            toast("Cannot open file picker: ${e.message}")
+        }
     }
 
     private fun buildSettingsTab(): LinearLayout {
@@ -437,7 +462,23 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_VPN && resultCode == RESULT_OK) onConnect()
+        when (requestCode) {
+            REQ_VPN -> if (resultCode == RESULT_OK) onConnect()
+            REQ_LOG_EXPORT -> {
+                val uri = data?.data
+                if (resultCode == RESULT_OK && uri != null) {
+                    try {
+                        contentResolver.openOutputStream(uri)?.use { output ->
+                            output.write(pendingLogExport.toByteArray(Charsets.UTF_8))
+                        } ?: throw IllegalStateException("Could not open selected file")
+                        toast("Diagnostic log saved")
+                    } catch (e: Exception) {
+                        toast("Save failed: ${e.message}")
+                    }
+                }
+                pendingLogExport = ""
+            }
+        }
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
