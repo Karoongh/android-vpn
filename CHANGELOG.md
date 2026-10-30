@@ -5,6 +5,15 @@ All notable changes to **Karoon Tunnel** are documented here.
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 Versioning uses app `versionName` with monotonic `versionCode`.
 
+## [2.1.3] — 2026-10-30 (versionCode 9)
+
+### Changed
+
+- Expand Stats traffic history to a rolling five-minute window (300 one-second samples).
+- Smooth chart updates with short interpolated transitions and curved line rendering.
+- Add a restrained animated glow and short comet-like trail to the live data point.
+- Keep chart animation active only while the Stats tab is visible.
+
 ## [2.1.2] — 2026-10-30 (versionCode 8)\n\n### Changed\n\n- Improve button spacing, sizing, and visual hierarchy across the app.\n- Add Android ripple and press-scale feedback to navigation, main, and Logs/config action buttons.\n\n## [2.1.1] — 2026-10-30 (versionCode 7)
 
 ### Changed
