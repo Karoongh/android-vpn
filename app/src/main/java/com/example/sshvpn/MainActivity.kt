@@ -26,7 +26,12 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.FileProvider
+import java.io.File
+import java.text.SimpleDateFormat
 import java.util.ArrayDeque
+import java.util.Date
+import java.util.Locale
 import kotlin.math.max
 
 class MainActivity : Activity() {
@@ -373,6 +378,9 @@ class MainActivity : Activity() {
         outer.addView(row(
             smallBtn("Copy") { copyLogs() },
             smallBtn("Save TXT") { saveLogsToFile() },
+        ))
+        outer.addView(row(
+            smallBtn("Send Log") { confirmShareLogs() },
             smallBtn("Clear") { LogStore.clear(); refreshLogs() },
         ))
         val scroll = ScrollView(this)
@@ -405,6 +413,50 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun confirmShareLogs() {
+        val logText = LogStore.text()
+        if (logText.isBlank()) {
+            toast("No logs to send")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Send diagnostic log?")
+            .setMessage("The log may contain server addresses, IP addresses, timestamps, and network details. Review the file before sending it to anyone.")
+            .setPositiveButton("Continue") { _, _ -> shareLogsFile(logText) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun shareLogsFile(logText: String) {
+        try {
+            val shareDir = File(cacheDir, "shared-logs")
+            if (!shareDir.exists() && !shareDir.mkdirs()) {
+                throw IllegalStateException("Could not create temporary log folder")
+            }
+            val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+            val logFile = File(shareDir, "karoon-vpn-diagnostics-$timestamp.txt")
+            logFile.writeText(logText, Charsets.UTF_8)
+
+            val contentUri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                logFile,
+            )
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Karoon Tunnel diagnostic log")
+                putExtra(Intent.EXTRA_TEXT, "Karoon Tunnel diagnostic log is attached.")
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                clipData = ClipData.newUri(contentResolver, logFile.name, contentUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(sendIntent, "Send diagnostic log"))
+        } catch (e: Exception) {
+            toast("Could not share log: ${e.message}")
+            LogStore.append("Log sharing failed: ${e.javaClass.simpleName}")
+        }
+    }
+
     private fun buildSettingsTab(): LinearLayout {
         val scroll = ScrollView(this).apply { setBackgroundColor(BG) }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(20), dp(16), dp(16)) }
@@ -416,7 +468,7 @@ class MainActivity : Activity() {
         }
         col.addView(etMaxChannels, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         col.addView(TextView(this).apply {
-            text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 2.0.0\nSigning: keystore/SIGNING.md"
+            text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 2.1.0\nSigning: keystore/SIGNING.md"
             textSize = 12f; setTextColor(MUTED); setPadding(0, dp(16), 0, 0)
         })
         scroll.addView(col)
