@@ -17,6 +17,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -390,7 +393,27 @@ class MainActivity : Activity() {
         outer.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         return outer
     }
-    private fun refreshLogs() { tvLogs.text = LogStore.text().ifBlank { "(empty)" } }
+    private fun refreshLogs() {
+        val entries = LogStore.entries()
+        if (entries.isEmpty()) {
+            tvLogs.text = "(empty)"
+            return
+        }
+        val styled = SpannableStringBuilder()
+        entries.forEach { entry ->
+            val line = LogStore.format(entry) + "\n"
+            val start = styled.length
+            styled.append(line)
+            val color = when {
+                entry.isContext -> MUTED
+                entry.severity == LogSeverity.ERROR -> ERROR
+                entry.severity == LogSeverity.WARNING -> WARNING
+                else -> MUTED
+            }
+            styled.setSpan(ForegroundColorSpan(color), start, styled.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        tvLogs.text = styled
+    }
     private fun copyLogs() {
         (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("logs", LogStore.text()))
         toast("Logs copied")
@@ -502,7 +525,7 @@ class MainActivity : Activity() {
         }
         col.addView(etMaxChannels, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         col.addView(TextView(this).apply {
-            text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 2.1.0\nSigning: keystore/SIGNING.md"
+            text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 2.1.1\nSigning: keystore/SIGNING.md"
             textSize = 12f; setTextColor(MUTED); setPadding(0, dp(16), 0, 0)
         })
         scroll.addView(col)
