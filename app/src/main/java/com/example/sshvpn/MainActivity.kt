@@ -39,6 +39,7 @@ class MainActivity : Activity() {
         const val REQ_VPN = 1
         const val REQ_NOTIF = 4
         const val REQ_LOG_EXPORT = 5
+        const val SUPPORT_EMAIL = "ghobadi.karoon@gmail.com"
         val BG = Color.parseColor("#0B1220")
         val CARD = Color.parseColor("#1A2332")
         val ACCENT = Color.parseColor("#3B82F6")
@@ -422,12 +423,28 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("Send diagnostic log?")
             .setMessage("The log may contain server addresses, IP addresses, timestamps, and network details. Review the file before sending it to anyone.")
-            .setPositiveButton("Continue") { _, _ -> shareLogsFile(logText) }
+            .setPositiveButton("Continue") { _, _ -> chooseLogDestination(logText) }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun shareLogsFile(logText: String) {
+    private fun chooseLogDestination(logText: String) {
+        val destinations = arrayOf("Email", "Telegram", "WhatsApp")
+        AlertDialog.Builder(this)
+            .setTitle("Choose how to send the log")
+            .setItems(destinations) { _, which ->
+                val destination = when (which) {
+                    0 -> "email"
+                    1 -> "telegram"
+                    else -> "whatsapp"
+                }
+                shareLogsFile(logText, destination)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun shareLogsFile(logText: String, destination: String) {
         try {
             val shareDir = File(cacheDir, "shared-logs")
             if (!shareDir.exists() && !shareDir.mkdirs()) {
@@ -450,13 +467,30 @@ class MainActivity : Activity() {
                 clipData = ClipData.newUri(contentResolver, logFile.name, contentUri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(sendIntent, "Send diagnostic log"))
+
+            when (destination) {
+                "email" -> {
+                    sendIntent.putExtra(Intent.EXTRA_EMAIL, arrayOf(SUPPORT_EMAIL))
+                    startActivity(Intent.createChooser(sendIntent, "Send log by email"))
+                }
+                "telegram" -> {
+                    sendIntent.setPackage("org.telegram.messenger")
+                    startActivity(sendIntent)
+                }
+                "whatsapp" -> {
+                    sendIntent.setPackage("com.whatsapp")
+                    startActivity(sendIntent)
+                }
+            }
+        } catch (e: android.content.ActivityNotFoundException) {
+            val appName = if (destination == "telegram") "Telegram" else "WhatsApp"
+            toast("$appName is not installed")
+            LogStore.append("$appName sharing unavailable: app not installed")
         } catch (e: Exception) {
             toast("Could not share log: ${e.message}")
             LogStore.append("Log sharing failed: ${e.javaClass.simpleName}")
         }
     }
-
     private fun buildSettingsTab(): LinearLayout {
         val scroll = ScrollView(this).apply { setBackgroundColor(BG) }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(20), dp(16), dp(16)) }
