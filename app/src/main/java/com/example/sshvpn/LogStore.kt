@@ -34,7 +34,8 @@ object LogStore {
     private const val CONTEXT_RETENTION_MS = 5L * 60L * 1000L
     private const val MAX_NORMAL_ENTRIES = 2_000
     private const val MAX_CONTEXT_ENTRIES = 300
-    private const val MAX_ERROR_RECORDS = 300
+    private const val MAX_CONTEXT_PER_ERROR = 60
+    private const val MAX_ERROR_RECORDS = 100
     private const val MAX_ERROR_FILE_BYTES = 256L * 1024L
     private const val PRUNE_INTERVAL_MS = 60_000L
 
@@ -95,7 +96,7 @@ object LogStore {
             pruneLocked(now)
             val entry = LogEntry(now, severity, msg)
             if (severity == LogSeverity.ERROR) {
-                val context = contextEntries.filter { now - it.timestamp <= CONTEXT_RETENTION_MS }
+                val context = contextEntries.filter { now - it.timestamp <= CONTEXT_RETENTION_MS }.takeLast(MAX_CONTEXT_PER_ERROR)
                 // Avoid persisting the same critical error repeatedly within 30 seconds.
                 val duplicate = errorRecords.lastOrNull()?.let {
                     it.entry.message == msg && now - it.entry.timestamp < 30_000L
@@ -192,7 +193,7 @@ object LogStore {
     }
 
     private fun key(entry: LogEntry): String =
-        "${entry.timestamp}|${entry.severity}|${entry.message}|${entry.isContext}"
+        "${entry.timestamp}|${entry.severity}|${entry.message}"
 
     /** Returns true when persisted error records were removed. */
     private fun pruneLocked(now: Long): Boolean {
