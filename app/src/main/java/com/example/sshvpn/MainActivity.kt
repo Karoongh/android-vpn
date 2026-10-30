@@ -395,7 +395,7 @@ class MainActivity : Activity() {
     private fun startChartAnimation() { if (::chartUp.isInitialized) { chartUp.startAnimation(); chartDown.startAnimation() } }
     private fun stopChartAnimation() { if (::chartUp.isInitialized) { chartUp.stopAnimation(); chartDown.stopAnimation() } }
     private fun tickStats() {
-        if (!speedRunning || currentTab != 2) return
+        if (!speedRunning) return
         val up = TunnelStats.uplink.get(); val down = TunnelStats.downlink.get()
         val upRate = max(0f, (up - lastUpBytes).toFloat()); val downRate = max(0f, (down - lastDownBytes).toFloat())
         lastUpBytes = up; lastDownBytes = down
