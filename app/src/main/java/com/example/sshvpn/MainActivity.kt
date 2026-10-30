@@ -77,6 +77,7 @@ class MainActivity : Activity() {
     private lateinit var etMaxChannels: EditText
     private val navButtons = ArrayList<TextView>()
     private var currentTab = 0
+    private var disconnectRequested = false
     private var pendingLogExport: String = ""
     private val mainHandler = Handler(Looper.getMainLooper())
     private var speedRunning = false
@@ -96,7 +97,10 @@ class MainActivity : Activity() {
             profiles = ProfileStore(this)
             editingId = profiles.getActiveId()
             buildUi()
-            VpnState.listener = { runOnUiThread { try { renderHome(); if (currentTab == 3) refreshLogs() } catch (_: Throwable) {} } }
+            VpnState.listener = { runOnUiThread { try {
+                if (disconnectRequested && VpnState.status != Status.CONNECTED && VpnState.status != Status.CONNECTING && VpnState.status != Status.RECONNECTING) stopDisconnectPulse()
+                renderHome(); if (currentTab == 3) refreshLogs()
+            } catch (_: Throwable) {} } }
             LogStore.listener = { runOnUiThread { try { if (currentTab == 3) refreshLogs() } catch (_: Throwable) {} } }
             renderHome()
             showTab(0)
@@ -114,7 +118,7 @@ class MainActivity : Activity() {
             try { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
         }
     }
-    override fun onDestroy() { stopSpeedMonitor(); VpnState.listener = null; LogStore.listener = null; super.onDestroy() }
+    override fun onDestroy() { stopSpeedMonitor(); stopDisconnectPulse(); VpnState.listener = null; LogStore.listener = null; super.onDestroy() }
     override fun onPause() { stopSpeedMonitor(); super.onPause() }
 
     private fun buildUi() {
@@ -175,6 +179,14 @@ class MainActivity : Activity() {
         val st = VpnState.status
         val profile = profiles.getActive()
         tvActiveProfile.text = profile?.let { "Profile: ${it.displayName}\n${it.config.displayProtocol()}" } ?: "No profile selected"
+        if (disconnectRequested && st in listOf(Status.CONNECTED, Status.CONNECTING, Status.RECONNECTING)) {
+            tvHomeStatus.setTextColor(WARNING)
+            tvHomeStatus.text = "Disconnecting..."
+            btnMain.text = "Disconnecting..."
+            btnMain.isEnabled = false
+            btnMain.background = ripple(WARNING, 28)
+            return
+        }
         val (label, color) = when (st) {
             Status.DISCONNECTED -> "Disconnected" to MUTED
             Status.CONNECTING -> "Connecting..." to WARNING
@@ -568,9 +580,31 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
     }
     private fun onDisconnect() {
+        if (disconnectRequested) return
+        disconnectRequested = true
         LogStore.append("Disconnect requested")
+        renderHome()
+        animateDisconnectPulse()
         startService(Intent(this, SshVpnService::class.java).setAction(SshVpnService.ACTION_STOP))
-        VpnState.update(Status.DISCONNECTED, "Disconnected")
+    }
+
+    private fun animateDisconnectPulse() {
+        if (!disconnectRequested || !::btnMain.isInitialized) return
+        btnMain.animate().cancel()
+        btnMain.animate().alpha(0.68f).scaleX(0.97f).scaleY(0.97f).setDuration(420L)
+            .withEndAction {
+                if (disconnectRequested) {
+                    btnMain.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(420L)
+                        .withEndAction { animateDisconnectPulse() }.start()
+                }
+            }.start()
+    }
+
+    private fun stopDisconnectPulse() {
+        disconnectRequested = false
+        if (!::btnMain.isInitialized) return
+        btnMain.animate().cancel()
+        btnMain.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(120L).start()
     }
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
