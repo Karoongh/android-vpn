@@ -5,7 +5,14 @@ All notable changes to **Karoon Tunnel** are documented here.
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 Versioning uses app `versionName` with monotonic `versionCode`.
 
-## [2.1.0] — 2026-10-30 (versionCode 6)
+## [2.1.1] — 2026-10-30 (versionCode 7)
+
+### Changed
+
+- Keep ordinary diagnostic entries in a rolling one-hour in-memory window.
+- Retain critical errors independently for six hours, with a five-minute breadcrumb snapshot for troubleshooting.
+- Highlight errors and warnings in the Logs screen; cap the persisted error journal at 256 KB.
+- Remove the previous all-events disk log so routine heartbeats and probe results do not accumulate.
 
 ### Added
 
