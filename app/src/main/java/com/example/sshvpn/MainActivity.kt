@@ -1,6 +1,7 @@
 package com.example.sshvpn
 
 import android.Manifest
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
@@ -24,6 +25,7 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -81,8 +83,8 @@ class MainActivity : Activity() {
     private var pendingLogExport: String = ""
     private val mainHandler = Handler(Looper.getMainLooper())
     private var speedRunning = false
-    private val upSamples = ArrayDeque<Float>(60)
-    private val downSamples = ArrayDeque<Float>(60)
+    private val upSamples = ArrayDeque<Float>(300)
+    private val downSamples = ArrayDeque<Float>(300)
     private var lastUpBytes = 0L
     private var lastDownBytes = 0L
     private val speedRunnable = Runnable { tickStats() }
@@ -118,8 +120,15 @@ class MainActivity : Activity() {
             try { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
         }
     }
-    override fun onDestroy() { stopSpeedMonitor(); stopDisconnectPulse(); VpnState.listener = null; LogStore.listener = null; super.onDestroy() }
-    override fun onPause() { stopSpeedMonitor(); super.onPause() }
+    override fun onDestroy() { stopSpeedMonitor(); stopChartAnimation(); stopDisconnectPulse(); VpnState.listener = null; LogStore.listener = null; super.onDestroy() }
+    override fun onPause() { stopSpeedMonitor(); stopChartAnimation(); super.onPause() }
+    override fun onResume() {
+        super.onResume()
+        if (currentTab == 2) {
+            startSpeedMonitor()
+            startChartAnimation()
+        }
+    }
 
     private fun buildUi() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
@@ -146,8 +155,13 @@ class MainActivity : Activity() {
         currentTab = index
         listOf(tabHome, tabConfigs, tabSpeed, tabLogs, tabSettings).forEachIndexed { i, v -> v.visibility = if (i == index) View.VISIBLE else View.GONE }
         navButtons.forEachIndexed { i, tv -> tv.setTextColor(if (i == index) ACCENT else MUTED); tv.typeface = if (i == index) Typeface.DEFAULT_BOLD else Typeface.DEFAULT }
-        when (index) { 0 -> renderHome(); 1 -> refreshConfigsList(); 2 -> startSpeedMonitor(); 3 -> refreshLogs() }
-        if (index != 2) stopSpeedMonitor()
+        when (index) {
+            0 -> renderHome()
+            1 -> refreshConfigsList()
+            2 -> { startSpeedMonitor(); startChartAnimation() }
+            3 -> refreshLogs()
+        }
+        if (index != 2) stopChartAnimation()
     }
 
     private fun buildHomeTab(): LinearLayout {
@@ -348,7 +362,11 @@ class MainActivity : Activity() {
     private fun buildSpeedTab(): LinearLayout {
         val scroll = ScrollView(this).apply { setBackgroundColor(BG) }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(20), dp(16), dp(16)) }
-        col.addView(TextView(this).apply { text = "Stats"; textSize = 20f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, dp(16)) })
+        col.addView(TextView(this).apply { text = "Stats"; textSize = 20f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, dp(2)) })
+        col.addView(TextView(this).apply {
+            text = "LIVE  ·  LAST 5 MINUTES"; textSize = 10f; setTextColor(MUTED)
+            letterSpacing = 0.08f; setPadding(0, 0, 0, dp(14))
+        })
         val upHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         upHeader.addView(TextView(this).apply { text = "Uplink"; textSize = 14f; setTextColor(MUTED); layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
         tvUplinkTotal = TextView(this).apply { text = "0 B"; textSize = 14f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD }
@@ -367,18 +385,28 @@ class MainActivity : Activity() {
 
     private fun startSpeedMonitor() {
         if (speedRunning) return
-        speedRunning = true; lastUpBytes = TunnelStats.uplink.get(); lastDownBytes = TunnelStats.downlink.get()
-        upSamples.clear(); downSamples.clear(); mainHandler.post(speedRunnable)
+        speedRunning = true
+        lastUpBytes = TunnelStats.uplink.get()
+        lastDownBytes = TunnelStats.downlink.get()
+        if (upSamples.isEmpty()) repeat(300) { upSamples.addLast(0f); downSamples.addLast(0f) }
+        mainHandler.post(speedRunnable)
     }
     private fun stopSpeedMonitor() { speedRunning = false; mainHandler.removeCallbacks(speedRunnable) }
+    private fun startChartAnimation() { if (::chartUp.isInitialized) { chartUp.startAnimation(); chartDown.startAnimation() } }
+    private fun stopChartAnimation() { if (::chartUp.isInitialized) { chartUp.stopAnimation(); chartDown.stopAnimation() } }
     private fun tickStats() {
-        if (!speedRunning || currentTab != 2) return
+        if (!speedRunning) return
         val up = TunnelStats.uplink.get(); val down = TunnelStats.downlink.get()
         val upRate = max(0f, (up - lastUpBytes).toFloat()); val downRate = max(0f, (down - lastDownBytes).toFloat())
         lastUpBytes = up; lastDownBytes = down
-        if (upSamples.size >= 60) upSamples.removeFirst(); upSamples.addLast(upRate)
-        if (downSamples.size >= 60) downSamples.removeFirst(); downSamples.addLast(downRate)
-        chartUp.setSamples(upSamples.toList()); chartDown.setSamples(downSamples.toList())
+        if (upSamples.size >= 300) upSamples.removeFirst()
+        upSamples.addLast(upRate)
+        if (downSamples.size >= 300) downSamples.removeFirst()
+        downSamples.addLast(downRate)
+        if (currentTab == 2) {
+            chartUp.setSamples(upSamples.toList())
+            chartDown.setSamples(downSamples.toList())
+        }
         tvUplinkTotal.text = formatBytes(up); tvDownlinkTotal.text = formatBytes(down)
         mainHandler.postDelayed(speedRunnable, 1000)
     }
@@ -541,7 +569,7 @@ class MainActivity : Activity() {
         }
         col.addView(etMaxChannels, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
         col.addView(TextView(this).apply {
-            text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 2.1.2\nSigning: keystore/SIGNING.md"
+            text = "\nProtocols: SSH, VLESS, VMess, Trojan, Shadowsocks\nVersion 2.1.3\nSigning: keystore/SIGNING.md"
             textSize = 12f; setTextColor(MUTED); setPadding(0, dp(16), 0, 0)
         })
         scroll.addView(col)
@@ -670,28 +698,124 @@ class MainActivity : Activity() {
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 }
 
-/** Simple sparkline chart for uplink/downlink rates. */
+/** Smooth five-minute rolling traffic chart with a restrained comet-like live tip. */
 class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
-    private val samples = ArrayList<Float>()
+    private data class Point(val x: Float, val y: Float)
+
+    private val samples = ArrayList<Float>(300)
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = lineColor; style = Paint.Style.STROKE; strokeWidth = 3f
+        color = lineColor
+        style = Paint.Style.STROKE
+        strokeWidth = 2.8f * resources.displayMetrics.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val tailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = lineColor
+        alpha = 75
+        style = Paint.Style.STROKE
+        strokeWidth = 5f * resources.displayMetrics.density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#243044"); style = Paint.Style.STROKE; strokeWidth = 1f
+        color = Color.parseColor("#243044")
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density
     }
-    fun setSamples(list: List<Float>) { samples.clear(); samples.addAll(list); invalidate() }
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = lineColor }
+    private var shimmer = 0f
+    private var shimmerAnimator: ValueAnimator? = null
+    private var transitionAnimator: ValueAnimator? = null
+
+    fun setSamples(list: List<Float>) {
+        val target = list.takeLast(300)
+        if (samples.isEmpty() || samples.size != target.size) {
+            samples.clear()
+            samples.addAll(target)
+            invalidate()
+            return
+        }
+        transitionAnimator?.cancel()
+        val start = samples.toList()
+        transitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 850L
+            interpolator = LinearInterpolator()
+            addUpdateListener { animator ->
+                val fraction = animator.animatedValue as Float
+                samples.indices.forEach { index ->
+                    samples[index] = start[index] + (target[index] - start[index]) * fraction
+                }
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    fun startAnimation() {
+        if (shimmerAnimator?.isRunning == true) return
+        shimmerAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1500L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener {
+                shimmer = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    fun stopAnimation() {
+        shimmerAnimator?.cancel()
+        shimmerAnimator = null
+        transitionAnimator?.cancel()
+        transitionAnimator = null
+    }
+
+    private fun smoothPath(points: List<Point>): android.graphics.Path {
+        val path = android.graphics.Path()
+        if (points.isEmpty()) return path
+        path.moveTo(points.first().x, points.first().y)
+        if (points.size == 1) return path
+        for (i in 1 until points.lastIndex) {
+            val current = points[i]
+            val next = points[i + 1]
+            path.quadTo(current.x, current.y, (current.x + next.x) * 0.5f, (current.y + next.y) * 0.5f)
+        }
+        path.lineTo(points.last().x, points.last().y)
+        return path
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val w = width.toFloat(); val h = height.toFloat()
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) return
+
         for (i in 1..3) canvas.drawLine(0f, h * i / 4f, w, h * i / 4f, gridPaint)
         if (samples.size < 2) return
+
         val maxV = samples.maxOrNull()?.coerceAtLeast(1f) ?: 1f
-        val path = android.graphics.Path()
-        samples.forEachIndexed { i, v ->
-            val x = i * w / (samples.size - 1).coerceAtLeast(1)
-            val y = h - (v / maxV) * (h * 0.9f)
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        val inset = 6f * resources.displayMetrics.density
+        val plotWidth = (w - inset * 2f).coerceAtLeast(1f)
+        val points = samples.mapIndexed { i, value ->
+            val x = inset + i * plotWidth / 299f
+            val y = h - (value / maxV) * (h * 0.88f) - h * 0.04f
+            Point(x, y)
         }
-        canvas.drawPath(path, linePaint)
+
+        canvas.drawPath(smoothPath(points), linePaint)
+
+        // Short, low-opacity trail: a subtle comet effect without visual clutter.
+        val tail = points.subList((points.size - 9).coerceAtLeast(0), points.size)
+        if (tail.size > 1) canvas.drawPath(smoothPath(tail), tailPaint)
+
+        val head = points.last()
+        val pulse = 0.75f + shimmer * 0.25f
+        glowPaint.alpha = (34 + shimmer * 18).toInt()
+        canvas.drawCircle(head.x, head.y, 7f * resources.displayMetrics.density * pulse, glowPaint)
+        glowPaint.alpha = 235
+        canvas.drawCircle(head.x, head.y, 2.2f * resources.displayMetrics.density, glowPaint)
     }
 }
