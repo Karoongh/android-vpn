@@ -766,6 +766,10 @@ class TrafficChartView(
     private var shimmer = 0f
     private var shimmerAnimator: ValueAnimator? = null
     private var transitionAnimator: ValueAnimator? = null
+    private var scaleAnimator: ValueAnimator? = null
+    private var displayMaxValue = 1f
+    private var scaleCandidate = 1f
+    private var scaleCandidateCount = 0
 
     init {
         contentDescription = description
@@ -779,10 +783,11 @@ class TrafficChartView(
             invalidate()
             return
         }
+        updateVerticalScale(niceMaximum(target.maxOrNull() ?: 0f))
         transitionAnimator?.cancel()
         val start = samples.toList()
         transitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 420L
+            duration = 900L
             interpolator = LinearInterpolator()
             addUpdateListener { animator ->
                 val fraction = animator.animatedValue as Float
@@ -814,6 +819,53 @@ class TrafficChartView(
         shimmerAnimator = null
         transitionAnimator?.cancel()
         transitionAnimator = null
+        scaleAnimator?.cancel()
+        scaleAnimator = null
+    }
+
+    private fun updateVerticalScale(target: Float) {
+        if (displayMaxValue <= 1f) {
+            displayMaxValue = target
+            scaleCandidate = target
+            scaleCandidateCount = 0
+            return
+        }
+        if (target > displayMaxValue * 1.10f) {
+            scaleCandidate = target
+            scaleCandidateCount = 0
+            animateScaleTo(target)
+            return
+        }
+        if (target < displayMaxValue * 0.60f) {
+            if (kotlin.math.abs(scaleCandidate - target) / scaleCandidate.coerceAtLeast(1f) < 0.20f) {
+                scaleCandidateCount++
+            } else {
+                scaleCandidate = target
+                scaleCandidateCount = 1
+            }
+            if (scaleCandidateCount >= 4) {
+                scaleCandidateCount = 0
+                animateScaleTo(niceMaximum(scaleCandidate))
+            }
+        } else {
+            scaleCandidate = target
+            scaleCandidateCount = 0
+        }
+    }
+
+    private fun animateScaleTo(target: Float) {
+        if (kotlin.math.abs(target - displayMaxValue) < 1f) return
+        scaleAnimator?.cancel()
+        val start = displayMaxValue
+        scaleAnimator = ValueAnimator.ofFloat(start, target).apply {
+            duration = 520L
+            interpolator = LinearInterpolator()
+            addUpdateListener {
+                displayMaxValue = (it.animatedValue as Float).coerceAtLeast(1f)
+                invalidate()
+            }
+            start()
+        }
     }
 
     private fun formatAxisRate(value: Float): String {
@@ -866,7 +918,7 @@ class TrafficChartView(
         val plotWidth = (right - left).coerceAtLeast(1f)
         val plotHeight = (bottom - top).coerceAtLeast(1f)
 
-        val maxValue = niceMaximum(samples.maxOrNull() ?: 0f)
+        val maxValue = displayMaxValue.coerceAtLeast(1f)
         for (i in 0..4) {
             val y = top + plotHeight * i / 4f
             canvas.drawLine(left, y, right, y, gridPaint)
@@ -902,6 +954,14 @@ class TrafficChartView(
         areaPaint.shader = null
         canvas.drawPath(linePath, linePaint)
 
+        val liveGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = lineColor
+            alpha = 72
+            strokeWidth = density
+            pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f * density, 4f * density), 0f)
+        }
+        canvas.drawLine(points.last().x, top, points.last().x, bottom, liveGuidePaint)
+
         val tailStart = (points.size - 10).coerceAtLeast(0)
         if (points.size - tailStart > 1) {
             canvas.drawPath(smoothPath(points.subList(tailStart, points.size)), tailPaint)
@@ -911,6 +971,10 @@ class TrafficChartView(
         glowPaint.alpha = (28 + shimmer * 22).toInt()
         canvas.drawCircle(head.x, head.y, 8f * density * pulse, glowPaint)
         glowPaint.alpha = 245
-        canvas.drawCircle(head.x, head.y, 2.8f * density, glowPaint)
+        canvas.drawCircle(head.x, head.y, 3.2f * density, glowPaint)
+        glowPaint.color = Color.WHITE
+        glowPaint.alpha = 230
+        canvas.drawCircle(head.x, head.y, 1.15f * density, glowPaint)
+        glowPaint.color = lineColor
     }
 }
