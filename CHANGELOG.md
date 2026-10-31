@@ -5,6 +5,18 @@ All notable changes to **Karoon Tunnel** are documented here.
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 Versioning uses app `versionName` with monotonic `versionCode`.
 
+## [2.1.4] — 2026-10-31 (versionCode 10)
+
+### Fixed
+
+- Treat a SOCKS HTTPS health probe slower than 10 seconds as degraded, even if it eventually returns HTTP 204.
+- Trigger the existing safe tunnel rebuild after two consecutive failed or degraded health checks.
+- Reset the failure counter after a healthy probe. One isolated timeout does not cause a reconnect.
+
+### Scope
+
+- No changes to MTU, SSH keepalive, transport settings, SOCKS channel limits, or routing.
+
 ## [2.1.3] — 2026-10-30 (versionCode 9)
 
 ### Changed
