@@ -12,6 +12,8 @@ import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -19,6 +21,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -76,6 +79,8 @@ class MainActivity : Activity() {
     private lateinit var chartDown: TrafficChartView
     private lateinit var tvUplinkTotal: TextView
     private lateinit var tvDownlinkTotal: TextView
+    private lateinit var tvUplinkRate: TextView
+    private lateinit var tvDownlinkRate: TextView
     private lateinit var etMaxChannels: EditText
     private val navButtons = ArrayList<TextView>()
     private var currentTab = 0
@@ -87,6 +92,7 @@ class MainActivity : Activity() {
     private val downSamples = ArrayDeque<Float>(300)
     private var lastUpBytes = 0L
     private var lastDownBytes = 0L
+    private var lastStatsTickMs = 0L
     private val speedRunnable = Runnable { tickStats() }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -367,18 +373,22 @@ class MainActivity : Activity() {
             text = "LIVE  ·  LAST 5 MINUTES"; textSize = 10f; setTextColor(MUTED)
             letterSpacing = 0.08f; setPadding(0, 0, 0, dp(14))
         })
-        val upHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        upHeader.addView(TextView(this).apply { text = "Uplink"; textSize = 14f; setTextColor(MUTED); layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
-        tvUplinkTotal = TextView(this).apply { text = "0 B"; textSize = 14f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD }
-        upHeader.addView(tvUplinkTotal); col.addView(upHeader)
-        chartUp = TrafficChartView(this, Color.parseColor("#F59E0B"))
-        col.addView(chartUp, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(120)).apply { topMargin = dp(6); bottomMargin = dp(20) })
-        val downHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        downHeader.addView(TextView(this).apply { text = "Downlink"; textSize = 14f; setTextColor(MUTED); layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
-        tvDownlinkTotal = TextView(this).apply { text = "0 B"; textSize = 14f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD }
-        downHeader.addView(tvDownlinkTotal); col.addView(downHeader)
-        chartDown = TrafficChartView(this, Color.parseColor("#22C55E"))
-        col.addView(chartDown, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(120)).apply { topMargin = dp(6); bottomMargin = dp(12) })
+        val upHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        upHeader.addView(TextView(this).apply { text = "UPLOAD"; textSize = 12f; letterSpacing = 0.08f; setTextColor(MUTED); layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+        tvUplinkRate = TextView(this).apply { text = "0 B/s"; textSize = 18f; setTextColor(Color.parseColor("#38BDF8")); typeface = Typeface.DEFAULT_BOLD; contentDescription = "Current upload speed" }
+        upHeader.addView(tvUplinkRate); col.addView(upHeader)
+        chartUp = TrafficChartView(this, Color.parseColor("#38BDF8"), "Upload speed")
+        col.addView(chartUp, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(154)).apply { topMargin = dp(4) })
+        tvUplinkTotal = TextView(this).apply { text = "Sent: 0 B"; textSize = 11f; setTextColor(MUTED); setPadding(dp(44), 0, 0, dp(18)) }
+        col.addView(tvUplinkTotal)
+        val downHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        downHeader.addView(TextView(this).apply { text = "DOWNLOAD"; textSize = 12f; letterSpacing = 0.08f; setTextColor(MUTED); layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+        tvDownlinkRate = TextView(this).apply { text = "0 B/s"; textSize = 18f; setTextColor(Color.parseColor("#22C55E")); typeface = Typeface.DEFAULT_BOLD; contentDescription = "Current download speed" }
+        downHeader.addView(tvDownlinkRate); col.addView(downHeader)
+        chartDown = TrafficChartView(this, Color.parseColor("#22C55E"), "Download speed")
+        col.addView(chartDown, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(154)).apply { topMargin = dp(4) })
+        tvDownlinkTotal = TextView(this).apply { text = "Received: 0 B"; textSize = 11f; setTextColor(MUTED); setPadding(dp(44), 0, 0, dp(12)) }
+        col.addView(tvDownlinkTotal)
         scroll.addView(col)
         return LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)) }
     }
@@ -388,6 +398,7 @@ class MainActivity : Activity() {
         speedRunning = true
         lastUpBytes = TunnelStats.uplink.get()
         lastDownBytes = TunnelStats.downlink.get()
+        lastStatsTickMs = SystemClock.elapsedRealtime()
         if (upSamples.isEmpty()) repeat(300) { upSamples.addLast(0f); downSamples.addLast(0f) }
         mainHandler.post(speedRunnable)
     }
@@ -397,8 +408,13 @@ class MainActivity : Activity() {
     private fun tickStats() {
         if (!speedRunning) return
         val up = TunnelStats.uplink.get(); val down = TunnelStats.downlink.get()
-        val upRate = max(0f, (up - lastUpBytes).toFloat()); val downRate = max(0f, (down - lastDownBytes).toFloat())
-        lastUpBytes = up; lastDownBytes = down
+        val nowMs = SystemClock.elapsedRealtime()
+        val elapsedSeconds = ((nowMs - lastStatsTickMs).coerceAtLeast(1L) / 1000.0).coerceAtLeast(0.001)
+        val upDelta = (up - lastUpBytes).coerceAtLeast(0L)
+        val downDelta = (down - lastDownBytes).coerceAtLeast(0L)
+        val upRate = (upDelta / elapsedSeconds).toFloat().coerceAtLeast(0f)
+        val downRate = (downDelta / elapsedSeconds).toFloat().coerceAtLeast(0f)
+        lastUpBytes = up; lastDownBytes = down; lastStatsTickMs = nowMs
         if (upSamples.size >= 300) upSamples.removeFirst()
         upSamples.addLast(upRate)
         if (downSamples.size >= 300) downSamples.removeFirst()
@@ -407,16 +423,28 @@ class MainActivity : Activity() {
             chartUp.setSamples(upSamples.toList())
             chartDown.setSamples(downSamples.toList())
         }
-        tvUplinkTotal.text = formatBytes(up); tvDownlinkTotal.text = formatBytes(down)
+        tvUplinkRate.text = formatRate(upRate) + "/s"
+        tvDownlinkRate.text = formatRate(downRate) + "/s"
+        tvUplinkTotal.text = "Sent: ${formatBytes(up)}"
+        tvDownlinkTotal.text = "Received: ${formatBytes(down)}"
         mainHandler.postDelayed(speedRunnable, 1000)
     }
     private fun formatBytes(v: Long): String {
         val d = v.toDouble()
         return when {
             d < 1024 -> "$v B"
-            d < 1024 * 1024 -> String.format("%.1f KB", d / 1024)
-            d < 1024.0 * 1024 * 1024 -> String.format("%.2f MB", d / (1024 * 1024))
-            else -> String.format("%.2f GB", d / (1024 * 1024 * 1024))
+            d < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", d / 1024)
+            d < 1024.0 * 1024 * 1024 -> String.format(Locale.US, "%.2f MB", d / (1024 * 1024))
+            else -> String.format(Locale.US, "%.2f GB", d / (1024 * 1024 * 1024))
+        }
+    }
+    private fun formatRate(v: Float): String {
+        val d = v.toDouble().coerceAtLeast(0.0)
+        return when {
+            d < 1024 -> String.format(Locale.US, "%.0f B", d)
+            d < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", d / 1024.0)
+            d < 1024.0 * 1024 * 1024 -> String.format(Locale.US, "%.2f MB", d / (1024.0 * 1024))
+            else -> String.format(Locale.US, "%.2f GB", d / (1024.0 * 1024 * 1024))
         }
     }
 
@@ -698,38 +726,54 @@ class MainActivity : Activity() {
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 }
 
-/** Smooth five-minute rolling traffic chart with a restrained comet-like live tip. */
-class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
+/** Five-minute traffic chart with adaptive scale and a restrained live indicator. */
+class TrafficChartView(
+    ctx: Context,
+    private val lineColor: Int,
+    private val description: String,
+) : View(ctx) {
     private data class Point(val x: Float, val y: Float)
 
+    private val density = resources.displayMetrics.density
     private val samples = ArrayList<Float>(300)
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = lineColor
         style = Paint.Style.STROKE
-        strokeWidth = 2.8f * resources.displayMetrics.density
+        strokeWidth = 2.4f * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
+    private val areaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val tailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = lineColor
-        alpha = 75
+        alpha = 62
         style = Paint.Style.STROKE
-        strokeWidth = 5f * resources.displayMetrics.density
+        strokeWidth = 5f * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#243044")
+        color = Color.parseColor("#334155")
         style = Paint.Style.STROKE
-        strokeWidth = resources.displayMetrics.density
+        strokeWidth = density
+    }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#94A3B8")
+        textSize = 9f * density
+        typeface = Typeface.create("sans-serif", Typeface.NORMAL)
     }
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = lineColor }
     private var shimmer = 0f
     private var shimmerAnimator: ValueAnimator? = null
     private var transitionAnimator: ValueAnimator? = null
 
+    init {
+        contentDescription = description
+        setLayerType(View.LAYER_TYPE_HARDWARE, null)
+    }
+
     fun setSamples(list: List<Float>) {
-        val target = list.takeLast(300)
+        val target = list.takeLast(300).map { it.coerceAtLeast(0f) }
         if (samples.isEmpty() || samples.size != target.size) {
             samples.clear()
             samples.addAll(target)
@@ -739,7 +783,7 @@ class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
         transitionAnimator?.cancel()
         val start = samples.toList()
         transitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 850L
+            duration = 420L
             interpolator = LinearInterpolator()
             addUpdateListener { animator ->
                 val fraction = animator.animatedValue as Float
@@ -755,7 +799,7 @@ class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
     fun startAnimation() {
         if (shimmerAnimator?.isRunning == true) return
         shimmerAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1500L
+            duration = 1700L
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
             addUpdateListener {
@@ -771,6 +815,29 @@ class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
         shimmerAnimator = null
         transitionAnimator?.cancel()
         transitionAnimator = null
+    }
+
+    private fun formatAxisRate(value: Float): String {
+        return when {
+            value < 1024f -> String.format(Locale.US, "%.0f", value)
+            value < 1024f * 1024f -> String.format(Locale.US, "%.0fK", value / 1024f)
+            else -> String.format(Locale.US, "%.1fM", value / (1024f * 1024f))
+        }
+    }
+
+    private fun niceMaximum(value: Float): Float {
+        if (value <= 1f) return 1f
+        val exponent = kotlin.math.floor(kotlin.math.log10(value)).toInt()
+        val magnitude = Math.pow(10.0, exponent.toDouble()).toFloat()
+        val normalized = value / magnitude
+        val step = when {
+            normalized <= 1f -> 1f
+            normalized <= 2f -> 2f
+            normalized <= 2.5f -> 2.5f
+            normalized <= 5f -> 5f
+            else -> 10f
+        }
+        return step * magnitude
     }
 
     private fun smoothPath(points: List<Point>): android.graphics.Path {
@@ -793,29 +860,58 @@ class TrafficChartView(ctx: Context, private val lineColor: Int) : View(ctx) {
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
 
-        for (i in 1..3) canvas.drawLine(0f, h * i / 4f, w, h * i / 4f, gridPaint)
-        if (samples.size < 2) return
+        val left = 42f * density
+        val right = w - 8f * density
+        val top = 9f * density
+        val bottom = h - 25f * density
+        val plotWidth = (right - left).coerceAtLeast(1f)
+        val plotHeight = (bottom - top).coerceAtLeast(1f)
 
-        val maxV = samples.maxOrNull()?.coerceAtLeast(1f) ?: 1f
-        val inset = 6f * resources.displayMetrics.density
-        val plotWidth = (w - inset * 2f).coerceAtLeast(1f)
-        val points = samples.mapIndexed { i, value ->
-            val x = inset + i * plotWidth / 299f
-            val y = h - (value / maxV) * (h * 0.88f) - h * 0.04f
-            Point(x, y)
+        val maxValue = niceMaximum(samples.maxOrNull() ?: 0f)
+        for (i in 0..4) {
+            val y = top + plotHeight * i / 4f
+            canvas.drawLine(left, y, right, y, gridPaint)
+            val axisValue = maxValue * (4 - i) / 4f
+            val label = formatAxisRate(axisValue)
+            canvas.drawText(label, left - labelPaint.measureText(label) - 7f * density, y + 3f * density, labelPaint)
         }
+        canvas.drawText("5 min", left, h - 5f * density, labelPaint)
+        val middle = "2.5 min"
+        canvas.drawText(middle, left + plotWidth * 0.5f - labelPaint.measureText(middle) * 0.5f, h - 5f * density, labelPaint)
+        val now = "NOW"
+        canvas.drawText(now, right - labelPaint.measureText(now), h - 5f * density, labelPaint)
 
-        canvas.drawPath(smoothPath(points), linePaint)
+        if (samples.isEmpty()) return
+        val points = samples.mapIndexed { index, value ->
+            val x = left + index * plotWidth / (299f)
+            val ratio = (value / maxValue).coerceIn(0f, 1f)
+            Point(x, bottom - ratio * plotHeight)
+        }
+        val linePath = smoothPath(points)
+        val areaPath = android.graphics.Path(linePath).apply {
+            lineTo(points.last().x, bottom)
+            lineTo(points.first().x, bottom)
+            close()
+        }
+        areaPaint.shader = LinearGradient(
+            0f, top, 0f, bottom,
+            (lineColor and 0x00FFFFFF) or (42 shl 24),
+            (lineColor and 0x00FFFFFF) or (3 shl 24),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawPath(areaPath, areaPaint)
+        areaPaint.shader = null
+        canvas.drawPath(linePath, linePaint)
 
-        // Short, low-opacity trail: a subtle comet effect without visual clutter.
-        val tail = points.subList((points.size - 9).coerceAtLeast(0), points.size)
-        if (tail.size > 1) canvas.drawPath(smoothPath(tail), tailPaint)
-
+        val tailStart = (points.size - 10).coerceAtLeast(0)
+        if (points.size - tailStart > 1) {
+            canvas.drawPath(smoothPath(points.subList(tailStart, points.size)), tailPaint)
+        }
         val head = points.last()
-        val pulse = 0.75f + shimmer * 0.25f
-        glowPaint.alpha = (34 + shimmer * 18).toInt()
-        canvas.drawCircle(head.x, head.y, 7f * resources.displayMetrics.density * pulse, glowPaint)
-        glowPaint.alpha = 235
-        canvas.drawCircle(head.x, head.y, 2.2f * resources.displayMetrics.density, glowPaint)
+        val pulse = 0.82f + shimmer * 0.18f
+        glowPaint.alpha = (28 + shimmer * 22).toInt()
+        canvas.drawCircle(head.x, head.y, 8f * density * pulse, glowPaint)
+        glowPaint.alpha = 245
+        canvas.drawCircle(head.x, head.y, 2.8f * density, glowPaint)
     }
 }
