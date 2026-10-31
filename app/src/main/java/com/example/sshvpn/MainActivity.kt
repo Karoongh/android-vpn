@@ -370,7 +370,7 @@ class MainActivity : Activity() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(20), dp(16), dp(16)) }
         col.addView(TextView(this).apply { text = "Stats"; textSize = 20f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD; setPadding(0, 0, 0, dp(2)) })
         col.addView(TextView(this).apply {
-            text = "LIVE  ·  LAST 5 MINUTES"; textSize = 10f; setTextColor(MUTED)
+            text = "LIVE  ·  LAST 5 MINUTES  ·  SCALE B/s"; textSize = 10f; setTextColor(MUTED)
             letterSpacing = 0.08f; setPadding(0, 0, 0, dp(14))
         })
         val upHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -400,7 +400,7 @@ class MainActivity : Activity() {
         lastDownBytes = TunnelStats.downlink.get()
         lastStatsTickMs = SystemClock.elapsedRealtime()
         if (upSamples.isEmpty()) repeat(300) { upSamples.addLast(0f); downSamples.addLast(0f) }
-        mainHandler.post(speedRunnable)
+        mainHandler.postDelayed(speedRunnable, 1000)
     }
     private fun stopSpeedMonitor() { speedRunning = false; mainHandler.removeCallbacks(speedRunnable) }
     private fun startChartAnimation() { if (::chartUp.isInitialized) { chartUp.startAnimation(); chartDown.startAnimation() } }
@@ -769,7 +769,6 @@ class TrafficChartView(
 
     init {
         contentDescription = description
-        setLayerType(View.LAYER_TYPE_HARDWARE, null)
     }
 
     fun setSamples(list: List<Float>) {
