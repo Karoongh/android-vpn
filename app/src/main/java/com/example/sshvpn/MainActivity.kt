@@ -763,6 +763,12 @@ class TrafficChartView(
         typeface = Typeface.create("sans-serif", Typeface.NORMAL)
     }
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = lineColor }
+    private val liveGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = lineColor
+        alpha = 72
+        strokeWidth = density
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f * density, 4f * density), 0f)
+    }
     private var shimmer = 0f
     private var shimmerAnimator: ValueAnimator? = null
     private var transitionAnimator: ValueAnimator? = null
@@ -954,12 +960,6 @@ class TrafficChartView(
         areaPaint.shader = null
         canvas.drawPath(linePath, linePaint)
 
-        val liveGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = lineColor
-            alpha = 72
-            strokeWidth = density
-            pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f * density, 4f * density), 0f)
-        }
         canvas.drawLine(points.last().x, top, points.last().x, bottom, liveGuidePaint)
 
         val tailStart = (points.size - 10).coerceAtLeast(0)
