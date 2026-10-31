@@ -35,6 +35,8 @@ class SshVpnService : VpnService() {
         private const val MTU = 1200
         private const val SSH_CONNECT_ATTEMPTS = 3
         private const val MAX_RECONNECT_ROUNDS = 8
+        private const val MAX_HEALTH_PROBE_LATENCY_MS = 10_000L
+        private const val MAX_CONSECUTIVE_HEALTH_FAILURES = 2
     }
 
     private var worker: Thread? = null
@@ -238,6 +240,7 @@ class SshVpnService : VpnService() {
             updateNotification("Connected to ${cfg.host}")
 
             var lastHealthCheck = SystemClock.elapsedRealtime()
+            var consecutiveHealthFailures = 0
             var lastUpBytes = TunnelStats.uplink.get()
             var lastDownBytes = TunnelStats.downlink.get()
             LogStore.append("DIAG monitor started: healthInterval=30s protocol=${cfg.displayProtocol()}")
@@ -282,8 +285,18 @@ class SshVpnService : VpnService() {
                         "tunOpen=${tun?.fileDescriptor?.valid() ?: false} $socksState " +
                         "trafficUp=+$upDelta B trafficDown=+$downDelta B totalUp=$up B totalDown=$down B")
                     val probeOk = probeThroughSocks(socksPort)
+                    if (probeOk) {
+                        consecutiveHealthFailures = 0
+                    } else {
+                        consecutiveHealthFailures++
+                    }
                     LogStore.append("DIAG health result=${if (probeOk) "OK" else "FAIL"} " +
+                        "consecutiveFailures=$consecutiveHealthFailures " +
                         "ssh=$sshState xray=$xrayState socksPort=$socksPort")
+                    if (consecutiveHealthFailures >= MAX_CONSECUTIVE_HEALTH_FAILURES) {
+                        LogStore.append("DIAG health degraded for $consecutiveHealthFailures consecutive checks — restarting tunnel safely")
+                        return false
+                    }
                 }
             }
             return true
@@ -439,8 +452,15 @@ class SshVpnService : VpnService() {
             conn.requestMethod = "GET"
             val code = conn.responseCode
             val elapsed = SystemClock.elapsedRealtime() - started
-            val ok = code == 204
-            LogStore.append("DIAG probe ${if (ok) "OK" else "BAD"} via SOCKS: HTTP=$code latency=${elapsed}ms")
+            val responsive = code == 204
+            val withinLatency = elapsed <= MAX_HEALTH_PROBE_LATENCY_MS
+            val ok = responsive && withinLatency
+            val result = when {
+                !responsive -> "BAD"
+                !withinLatency -> "SLOW"
+                else -> "OK"
+            }
+            LogStore.append("DIAG probe $result via SOCKS: HTTP=$code latency=${elapsed}ms")
             ok
         } catch (e: Exception) {
             val elapsed = SystemClock.elapsedRealtime() - started
