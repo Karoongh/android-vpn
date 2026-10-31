@@ -769,8 +769,6 @@ class TrafficChartView(
         strokeWidth = density
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f * density, 4f * density), 0f)
     }
-    private var shimmer = 0f
-    private var shimmerAnimator: ValueAnimator? = null
     private var transitionAnimator: ValueAnimator? = null
     private var scaleAnimator: ValueAnimator? = null
     private var displayMaxValue = 1f
@@ -783,46 +781,18 @@ class TrafficChartView(
 
     fun setSamples(list: List<Float>) {
         val target = list.takeLast(300).map { it.coerceAtLeast(0f) }
-        if (samples.isEmpty() || samples.size != target.size) {
-            samples.clear()
-            samples.addAll(target)
-            invalidate()
-            return
-        }
         updateVerticalScale(niceMaximum(target.maxOrNull() ?: 0f))
         transitionAnimator?.cancel()
-        val start = samples.toList()
-        transitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 900L
-            interpolator = LinearInterpolator()
-            addUpdateListener { animator ->
-                val fraction = animator.animatedValue as Float
-                samples.indices.forEach { index ->
-                    samples[index] = start[index] + (target[index] - start[index]) * fraction
-                }
-                invalidate()
-            }
-            start()
-        }
+        transitionAnimator = null
+        samples.clear()
+        samples.addAll(target)
+        invalidate()
     }
 
-    fun startAnimation() {
-        if (shimmerAnimator?.isRunning == true) return
-        shimmerAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1700L
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            addUpdateListener {
-                shimmer = it.animatedValue as Float
-                invalidate()
-            }
-            start()
-        }
-    }
+    // Traffic values remain fixed between real one-second samples.
+    fun startAnimation() = Unit
 
     fun stopAnimation() {
-        shimmerAnimator?.cancel()
-        shimmerAnimator = null
         transitionAnimator?.cancel()
         transitionAnimator = null
         scaleAnimator?.cancel()
@@ -967,9 +937,8 @@ class TrafficChartView(
             canvas.drawPath(smoothPath(points.subList(tailStart, points.size)), tailPaint)
         }
         val head = points.last()
-        val pulse = 0.82f + shimmer * 0.18f
-        glowPaint.alpha = (28 + shimmer * 22).toInt()
-        canvas.drawCircle(head.x, head.y, 8f * density * pulse, glowPaint)
+        glowPaint.alpha = 42
+        canvas.drawCircle(head.x, head.y, 8f * density, glowPaint)
         glowPaint.alpha = 245
         canvas.drawCircle(head.x, head.y, 3.2f * density, glowPaint)
         glowPaint.color = Color.WHITE
