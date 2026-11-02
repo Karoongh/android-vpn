@@ -1,9 +1,34 @@
 # Changelog
 
+## [2.1.5] — 2026-10-31 (versionCode 11)
+
+### Changed
+
+- Redesign the Stats charts with adaptive vertical scales, readable time labels, gradient area fill, and a restrained live-point indicator.
+- Show current upload and download rates separately from cumulative sent and received totals.
+- Calculate bytes per second using the actual elapsed sampling time.
+- Keep the five-minute rolling history and run chart animation only while Stats is visible.
+
+### Scope
+
+- No changes to VPN connection, SSH, Xray, tunnel, routing, MTU, or automatic recovery logic.
+
 All notable changes to **Karoon Tunnel** are documented here.
 
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
 Versioning uses app `versionName` with monotonic `versionCode`.
+
+## [2.1.4] — 2026-10-31 (versionCode 10)
+
+### Fixed
+
+- Treat a SOCKS HTTPS health probe slower than 10 seconds as degraded, even if it eventually returns HTTP 204.
+- Trigger the existing safe tunnel rebuild after two consecutive failed or degraded health checks.
+- Reset the failure counter after a healthy probe. One isolated timeout does not cause a reconnect.
+
+### Scope
+
+- No changes to MTU, SSH keepalive, transport settings, SOCKS channel limits, or routing.
 
 ## [2.1.3] — 2026-10-30 (versionCode 9)
 
