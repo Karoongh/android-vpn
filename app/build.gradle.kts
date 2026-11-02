@@ -5,45 +5,52 @@ plugins {
 
 android {
     namespace = "com.example.sshvpn"
-    compileSdk = 34
+    compileSdk = 36
     ndkVersion = "26.1.10909125"
 
     defaultConfig {
-        // Production applicationId for Play / sideload (distinct from sample com.example.*)
         applicationId = "app.karoon.tunnel"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 11
-        versionName = "2.1.5"
-
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-        }
+        targetSdk = 36
+        versionCode = 12
+        versionName = "2.1.6"
+        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64") }
     }
 
     signingConfigs {
         create("karoon") {
-            val ks = rootProject.file("keystore/karoon-debug.jks")
-            storeFile = ks
+            storeFile = rootProject.file("keystore/karoon-debug.jks")
             storePassword = "karoon_tunnel_debug"
             keyAlias = "karoon"
             keyPassword = "karoon_tunnel_debug"
         }
+        val storePass = System.getenv("PLAY_UPLOAD_STORE_PASSWORD")
+        val alias = System.getenv("PLAY_UPLOAD_KEY_ALIAS")
+        val keyPass = System.getenv("PLAY_UPLOAD_KEY_PASSWORD")
+        val uploadFile = rootProject.file("keystore/play-upload.jks")
+        if (!storePass.isNullOrBlank() && !alias.isNullOrBlank() &&
+            !keyPass.isNullOrBlank() && uploadFile.isFile) {
+            create("playUpload") {
+                storeFile = uploadFile
+                storePassword = storePass
+                keyAlias = alias
+                keyPassword = keyPass
+            }
+        }
     }
 
     externalNativeBuild {
-        ndkBuild {
-            path = file("src/main/jni/Android.mk")
-        }
+        ndkBuild { path = file("src/main/jni/Android.mk") }
     }
 
     buildTypes {
-        debug {
-            signingConfig = signingConfigs.getByName("karoon")
-        }
+        debug { signingConfig = signingConfigs.getByName("karoon") }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("karoon")
+            // Never sign a production build with the public/debug certificate.
+            if (signingConfigs.findByName("playUpload") != null) {
+                signingConfig = signingConfigs.getByName("playUpload")
+            }
         }
     }
 
@@ -51,9 +58,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    kotlinOptions { jvmTarget = "17" }
 }
 
 dependencies {
