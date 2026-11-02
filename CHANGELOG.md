@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.5] — 2026-10-31 (versionCode 11)
+
+### Changed
+
+- Redesign the Stats charts with adaptive vertical scales, readable time labels, gradient area fill, and a restrained live-point indicator.
+- Show current upload and download rates separately from cumulative sent and received totals.
+- Calculate bytes per second using the actual elapsed sampling time.
+- Keep the five-minute rolling history and run chart animation only while Stats is visible.
+
+### Scope
+
+- No changes to VPN connection, SSH, Xray, tunnel, routing, MTU, or automatic recovery logic.
+
 All notable changes to **Karoon Tunnel** are documented here.
 
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
