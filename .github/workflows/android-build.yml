@@ -12,87 +12,63 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PLAY_UPLOAD_STORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_STORE_PASSWORD }}
+      PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+      PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Enforce signing-key immutability and app version increase
+      - name: Validate version and protect debug certificate
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
           git fetch origin "$BASE_REF" --depth=1
-
-          # Never allow an ordinary PR to replace or modify the canonical signing key.
-          if ! git diff --quiet "origin/$BASE_REF...HEAD" -- keystore/karoon-debug.jks.base64; then
-            echo "::error::Canonical APK signing keystore was modified. Key rotation requires an explicitly approved migration."
-            exit 1
-          fi
-
-          # App-code changes intended for distribution must advance Android versionCode.
+          git diff --quiet "origin/$BASE_REF...HEAD" -- keystore/karoon-debug.jks.base64 || {
+            echo "::error::Debug signing certificate is immutable."; exit 1;
+          }
           if git diff --name-only "origin/$BASE_REF...HEAD" | grep -q '^app/'; then
             BASE_VERSION=$(git show "origin/$BASE_REF:app/build.gradle.kts" | sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*$/\1/p' | head -n1)
             HEAD_VERSION=$(sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*$/\1/p' app/build.gradle.kts | head -n1)
             test -n "$BASE_VERSION" && test -n "$HEAD_VERSION"
-            if [ "$HEAD_VERSION" -le "$BASE_VERSION" ]; then
-              echo "::error::versionCode must increase. Base=$BASE_VERSION, PR=$HEAD_VERSION"
-              exit 1
-            fi
-            echo "versionCode increased: $BASE_VERSION -> $HEAD_VERSION"
-          else
-            echo "No app/ files changed; version bump not required."
+            test "$HEAD_VERSION" -gt "$BASE_VERSION"
           fi
 
-      - name: Restore canonical signing keystore
+      - name: Restore debug signing keystore
         run: |
           set -euo pipefail
-          test -f keystore/karoon-debug.jks.base64
           base64 -d keystore/karoon-debug.jks.base64 > keystore/karoon-debug.jks
           test -s keystore/karoon-debug.jks
 
-      - name: Fetch complete hev-socks5-tunnel (with submodules)
+      - name: Fetch native tunnel source
         run: |
           set -e
           JNI_DIR="app/src/main/jni"
           rm -rf "$JNI_DIR/hev-socks5-tunnel"
           git clone --depth 1 --recursive https://github.com/heiher/hev-socks5-tunnel.git "$JNI_DIR/hev-socks5-tunnel"
-          printf '%s\n' \
-            'APP_OPTIM := release' \
-            'APP_PLATFORM := android-26' \
-            'APP_ABI := armeabi-v7a arm64-v8a x86 x86_64' \
-            'APP_CFLAGS := -O3 -DANDROID' \
-            'APP_SUPPORT_FLEXIBLE_PAGE_SIZES := true' \
-            > "$JNI_DIR/Application.mk"
+          printf '%s\n' 'APP_OPTIM := release' 'APP_PLATFORM := android-26' 'APP_ABI := armeabi-v7a arm64-v8a x86 x86_64' 'APP_CFLAGS := -O3 -DANDROID' 'APP_SUPPORT_FLEXIBLE_PAGE_SIZES := true' > "$JNI_DIR/Application.mk"
           printf '%s\n' 'include $(call all-subdir-makefiles)' > "$JNI_DIR/Android.mk"
           test -f "$JNI_DIR/hev-socks5-tunnel/src/hev-jni.c"
-          test -f "$JNI_DIR/hev-socks5-tunnel/src/hev-main.c"
-          test -f "$JNI_DIR/hev-socks5-tunnel/src/misc/hev-utils.h"
 
-      - name: Download Xray-core Android binaries into assets
+      - name: Download Xray-core Android binaries
         run: |
           set -e
           XRAY_TAG="v25.9.11"
           BASE="https://github.com/XTLS/Xray-core/releases/download/${XRAY_TAG}"
           mkdir -p app/src/main/assets/xray/arm64-v8a app/src/main/assets/xray/armeabi-v7a
           for pair in "arm64-v8a:Xray-android-arm64-v8a.zip" "armeabi-v7a:Xray-android-arm32-v7a.zip"; do
-            abi="${pair%%:*}"
-            file="${pair##*:}"
-            echo "Fetching $file for $abi"
-            curl -fsSL -o "/tmp/$file" "$BASE/$file" || {
-              echo "Primary asset missing; trying generic name patterns"
-              continue
-            }
-            rm -rf /tmp/xray-extract
-            mkdir -p /tmp/xray-extract
+            abi="${pair%%:*}"; file="${pair##*:}"
+            curl -fsSL -o "/tmp/$file" "$BASE/$file" || continue
+            rm -rf /tmp/xray-extract; mkdir -p /tmp/xray-extract
             unzip -qo "/tmp/$file" -d /tmp/xray-extract
-            BIN=$(find /tmp/xray-extract -type f -name 'xray' | head -n1)
-            test -n "$BIN"
-            cp "$BIN" "app/src/main/assets/xray/$abi/xray"
+            BIN=$(find /tmp/xray-extract -type f -name xray | head -n1)
+            test -n "$BIN"; cp "$BIN" "app/src/main/assets/xray/$abi/xray"
             chmod +x "app/src/main/assets/xray/$abi/xray"
-            ls -la "app/src/main/assets/xray/$abi/xray"
           done
           test -s app/src/main/assets/xray/arm64-v8a/xray
 
@@ -102,39 +78,67 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
+      - name: Set up Android SDK 36
         uses: android-actions/setup-android@v3
         with:
           packages: ''
 
-      - name: Install native build tools
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+      - name: Install Android 36 and native tools
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
 
-      - name: Set up Gradle 8.7
+      - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.7
+          gradle-version: 8.13
 
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Verify APK signature and canonical certificate
+      - name: Verify debug APK certificate
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$APK"
-          SIGNATURE_OUTPUT=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK")
-          printf '%s\n' "$SIGNATURE_OUTPUT"
-          EXPECTED_SHA256="06f03d3a6552183cf9a9fce276c1e9490e942c67fa51f885a5baec26fdbfd1b0"
-          if ! printf '%s\n' "$SIGNATURE_OUTPUT" | tr '[:upper:]' '[:lower:]' | grep -Fq "$EXPECTED_SHA256"; then
-            echo "::error::APK signer does not match the project's canonical signing certificate."
-            exit 1
-          fi
+          OUT=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK")
+          printf '%s\n' "$OUT"
+          echo "$OUT" | tr '[:upper:]' '[:lower:]' | grep -Fq "06f03d3a6552183cf9a9fce276c1e9490e942c67fa51f885a5baec26fdbfd1b0"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: karoon-tunnel-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Restore private Play upload keystore
+        if: env.PLAY_UPLOAD_STORE_PASSWORD != '' && env.PLAY_UPLOAD_KEY_ALIAS != '' && env.PLAY_UPLOAD_KEY_PASSWORD != ''
+        env:
+          PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$PLAY_UPLOAD_KEYSTORE_BASE64"
+          mkdir -p keystore
+          printf '%s' "$PLAY_UPLOAD_KEYSTORE_BASE64" | base64 --decode > keystore/play-upload.jks
+          test -s keystore/play-upload.jks
+
+      - name: Build signed Play Store AAB
+        if: env.PLAY_UPLOAD_STORE_PASSWORD != '' && env.PLAY_UPLOAD_KEY_ALIAS != '' && env.PLAY_UPLOAD_KEY_PASSWORD != ''
+        run: gradle --no-daemon :app:bundleRelease
+
+      - name: Verify signed Play Store AAB
+        if: env.PLAY_UPLOAD_STORE_PASSWORD != '' && env.PLAY_UPLOAD_KEY_ALIAS != '' && env.PLAY_UPLOAD_KEY_PASSWORD != ''
+        run: |
+          set -euo pipefail
+          AAB="app/build/outputs/bundle/release/app-release.aab"
+          test -s "$AAB"
+          jarsigner -verify "$AAB"
+
+      - name: Upload Play Store AAB
+        if: env.PLAY_UPLOAD_STORE_PASSWORD != '' && env.PLAY_UPLOAD_KEY_ALIAS != '' && env.PLAY_UPLOAD_KEY_PASSWORD != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: karoon-tunnel-play-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
